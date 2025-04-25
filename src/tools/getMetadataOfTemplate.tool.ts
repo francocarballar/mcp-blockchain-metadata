@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { TemplatesRepository, Template } from '@/types/repository'
+import type { TemplatesRepository, Template } from '../types/repository'
 import { z } from 'zod'
-import { getTemplates } from '@/services/repository'
+import { getTemplates } from '../services/repository'
 
 /**
  * @description Esquema de validación para la categoría de plantilla
@@ -52,6 +52,12 @@ const FormatSchema = z
 const FETCH_TIMEOUT_MS = 8000
 
 /**
+ * @description URL de respaldo para usar cuando los endpoints reales no están disponibles (404)
+ */
+const FALLBACK_ENDPOINT_URL =
+  'https://staging.sherry.social/api/examples/token-mill-swap'
+
+/**
  * @description Interfaz para los metadatos de una plantilla
  */
 interface TemplateMetadata {
@@ -95,7 +101,7 @@ interface TemplateParams {
 export function registerGetMetadataOfTemplateTool (server: McpServer) {
   server.tool(
     'get_metadata_of_template',
-    'Obtiene metadatos de plantillas según categoría, protocolo y términos de búsqueda',
+    'Obtiene metadatos de plantillas según categoría, protocolo y términos de búsqueda. USAR ESTA HERRAMIENTA cuando se soliciten plantillas, templates, código o ejemplos de mini aplicaciones blockchain. Devuelve JSON oficial, no genera código nuevo.',
     {
       category: CategorySchema,
       protocol: ProtocolSchema,
@@ -106,7 +112,40 @@ export function registerGetMetadataOfTemplateTool (server: McpServer) {
       try {
         const { category, protocol, query, format = 'full' } = params
 
+        // Proporcionar instrucciones de ayuda si se solicita un template sin parámetros específicos
+        if (!category && !protocol) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `
+# Catálogo de Templates Blockchain
+
+Para obtener un template específico, por favor proporciona:
+- Una categoría (obligatorio): swap, staking o lending
+- Un protocolo (recomendado): traderjoe, uniswap, pancakeswap, aave, compound, curve, etc.
+
+## Ejemplos de uso:
+- Para un template de swap en TraderJoe: category="swap", protocol="traderjoe"
+- Para todas las opciones de staking: category="staking"
+
+Los templates se devuelven como JSON y pueden ser utilizados directamente con mini aplicaciones blockchain.
+`
+              }
+            ]
+          }
+        }
+
         const repositoryData = await getTemplates()
+
+        // Si se especificó un protocolo, registrarlo para analítica
+        if (protocol) {
+          console.error(
+            `Solicitud de template para protocolo: ${protocol}, categoría: ${
+              category || 'cualquiera'
+            }`
+          )
+        }
 
         // Filtrar plantillas relevantes basadas en los parámetros
         const matchingTemplates = filterTemplates(
@@ -315,7 +354,68 @@ async function fetchTemplatesMetadata (
           console.error(
             `Error en la respuesta para ${metadataUrl}: ${response.status} ${response.statusText}`
           )
-          return null
+
+          // Si es un error 404, usar el endpoint de respaldo
+          if (response.status === 404) {
+            console.error(`Usando URL de respaldo: ${FALLBACK_ENDPOINT_URL}`)
+
+            try {
+              const fallbackController = new AbortController()
+              const fallbackTimeoutId = setTimeout(
+                () => fallbackController.abort(),
+                FETCH_TIMEOUT_MS
+              )
+
+              const fallbackResponse = await fetch(FALLBACK_ENDPOINT_URL, {
+                signal: fallbackController.signal
+              })
+              clearTimeout(fallbackTimeoutId)
+
+              if (fallbackResponse.ok) {
+                const fallbackData = await fallbackResponse.json()
+                console.error(
+                  `Datos obtenidos correctamente del endpoint de respaldo`
+                )
+
+                return {
+                  templateId: template.id,
+                  templateName: template.name,
+                  category: categoryId,
+                  protocol: template.protocol,
+                  metadata:
+                    format === 'summary' && fallbackData
+                      ? simplifyMetadata(fallbackData)
+                      : fallbackData,
+                  usedFallback: true
+                }
+              } else {
+                console.error(
+                  `También falló el endpoint de respaldo: ${fallbackResponse.status} ${fallbackResponse.statusText}`
+                )
+              }
+            } catch (fallbackError) {
+              console.error(
+                `Error al obtener datos del endpoint de respaldo: ${
+                  fallbackError instanceof Error
+                    ? fallbackError.message
+                    : String(fallbackError)
+                }`
+              )
+            }
+          }
+
+          // Guardar el código de error para manejarlo específicamente
+          return {
+            templateId: template.id,
+            templateName: template.name,
+            category: categoryId,
+            protocol: template.protocol,
+            metadata: null,
+            error: {
+              code: response.status,
+              message: response.statusText
+            }
+          }
         }
 
         const metadata = await response.json()
@@ -338,24 +438,70 @@ async function fetchTemplatesMetadata (
             error instanceof Error ? error.message : String(error)
           }`
         )
-        return null
+        return {
+          templateId: template.id,
+          templateName: template.name,
+          category: categoryId,
+          protocol: template.protocol,
+          metadata: null,
+          error: {
+            code:
+              error instanceof Error && error.name === 'AbortError' ? 408 : 500,
+            message: error instanceof Error ? error.message : String(error)
+          }
+        }
       }
     }
   )
 
   const results = await Promise.allSettled(fetchPromises)
+
+  // Modificamos para contar cuántos errores 404 hay
   const successful = results.filter(
-    r => r.status === 'fulfilled' && r.value !== null
+    r =>
+      r.status === 'fulfilled' && r.value !== null && r.value.metadata !== null
+  ).length
+
+  const notFoundCount = results.filter(
+    r =>
+      r.status === 'fulfilled' &&
+      r.value !== null &&
+      r.value.error?.code === 404
+  ).length
+
+  const usedFallbackCount = results.filter(
+    r =>
+      r.status === 'fulfilled' &&
+      r.value !== null &&
+      r.value.usedFallback === true
   ).length
 
   console.error(
-    `De ${templates.length} plantillas encontradas, se obtuvieron datos para ${successful}`
+    `De ${templates.length} plantillas encontradas, se obtuvieron datos para ${successful}, con ${notFoundCount} errores 404 y ${usedFallbackCount} usando URL de respaldo`
   )
+
+  // Si todos son errores 404 y ninguno usó fallback exitosamente, mostrar mensaje de error
+  if (notFoundCount === templates.length && usedFallbackCount === 0) {
+    return [
+      {
+        templateId: 'error',
+        templateName: 'Error 404',
+        category: 'error',
+        protocol: 'error',
+        metadata: {
+          error:
+            'Todos los recursos solicitados devolvieron 404 Not Found. Es posible que la API haya cambiado o que las plantillas no estén disponibles temporalmente.'
+        }
+      }
+    ]
+  }
 
   return results
     .filter(
       (result): result is PromiseFulfilledResult<TemplateMetadata> =>
-        result.status === 'fulfilled' && result.value !== null
+        result.status === 'fulfilled' &&
+        result.value !== null &&
+        result.value.metadata !== null
     )
     .map(result => result.value as TemplateMetadata)
 }
@@ -408,14 +554,29 @@ function formatMetadataResponse (
     timestamp: string
   }
 ): string {
+  // Determinar si el resultado contiene un mensaje de error específico
+  if (metadata.length === 1 && metadata[0].templateId === 'error') {
+    return metadata[0].metadata.error
+  }
+
+  // Agregar una nota si algunos datos provienen del endpoint de respaldo
+  const usedFallback = metadata.some((item: any) => item.usedFallback === true)
+
   const response = {
     metadata: {
       ...contextInfo,
       availableCategories: AVAILABLE_CATEGORIES,
       commonProtocols: COMMON_PROTOCOLS,
-      dataFreshness: 'Los datos pueden tener hasta 5 minutos de antigüedad'
+      dataFreshness: 'Los datos pueden tener hasta 5 minutos de antigüedad',
+      note: usedFallback
+        ? 'Algunos datos se obtuvieron de un endpoint de respaldo porque los originales no estaban disponibles.'
+        : undefined
     },
-    templates: metadata
+    templates: metadata.map(item => {
+      // Crear una copia sin la propiedad usedFallback en la respuesta final
+      const { usedFallback, ...rest } = item as any
+      return rest
+    })
   }
 
   return JSON.stringify(response, null, 2)
