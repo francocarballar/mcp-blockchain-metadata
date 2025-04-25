@@ -19,12 +19,17 @@ const ProtocolSchema = z
  * @description Esquema de validación para IDs de cadenas
  */
 const ChainIdSchema = z
-  .union([z.string(), z.number()])
-  .transform(val => (typeof val === 'string' ? parseInt(val, 10) : val))
-  .refine(val => !isNaN(val), {
-    message: 'Chain ID debe ser un número válido'
+  .union([z.string(), z.number(), z.null()])
+  .transform(val => {
+    if (val === null) return undefined
+    return typeof val === 'string' ? parseInt(val, 10) : val
   })
-  .describe('ID de la cadena de bloques. Ejemplo: 1 (Ethereum), 137 (Polygon)')
+  .refine(val => val === undefined || !isNaN(val as number), {
+    message: 'Chain ID debe ser un número válido o null'
+  })
+  .describe(
+    'ID de la cadena de bloques. Ejemplo: 1 (Ethereum), 137 (Polygon). Puede ser null para no filtrar por cadena.'
+  )
 
 /**
  * @description Esquema para limitar resultados
@@ -82,10 +87,19 @@ export function registerGetProtocolTokensTool (server: McpServer) {
           )
         }
 
+        // Si chainId es null o undefined, lo tratamos como undefined
         const numericChainId =
-          typeof chainId === 'string' ? parseInt(chainId, 10) : chainId
+          chainId === null
+            ? undefined
+            : typeof chainId === 'string'
+            ? parseInt(chainId, 10)
+            : chainId
 
-        if (chainId && isNaN(numericChainId as number)) {
+        if (
+          chainId !== null &&
+          chainId !== undefined &&
+          isNaN(numericChainId as number)
+        ) {
           return createErrorResponse(
             'El Chain ID proporcionado no es válido. Debe ser un número como 1 (Ethereum), 137 (Polygon).'
           )
