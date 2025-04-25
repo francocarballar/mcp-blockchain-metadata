@@ -30,19 +30,23 @@ const StateFilterSchema = z
  * @description Esquema para búsqueda por texto
  */
 const SearchQuerySchema = z
-  .string()
+  .union([z.string(), z.null()])
+  .transform(val => (val === null ? '' : val))
   .optional()
   .describe(
-    'Texto para buscar en el host, endpoint o categoría. Ejemplo: "swap"'
+    'Texto para buscar en el host, endpoint o categoría. Ejemplo: "swap". Puede ser null para no filtrar por texto.'
   )
 
 /**
  * @description Esquema para el protocolo de la mini aplicación
  */
 const ProtocolFilterSchema = z
-  .string()
+  .union([z.string(), z.null()])
+  .transform(val => (val === null ? '' : val))
   .optional()
-  .describe('Protocolo específico a filtrar. Ejemplo: "https", "http"')
+  .describe(
+    'Protocolo específico a filtrar. Ejemplo: "https", "http". Puede ser null para no filtrar por protocolo.'
+  )
 
 /**
  * @description Esquema para limitar resultados
