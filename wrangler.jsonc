@@ -7,6 +7,9 @@
 	"name": "mcp-blockchain-metadata",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-04-25",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
 	"assets": {
 		"binding": "ASSETS",
 		"directory": "./public"
