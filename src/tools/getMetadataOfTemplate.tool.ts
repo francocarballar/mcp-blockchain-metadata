@@ -5,28 +5,51 @@ import { getTemplates } from '@/services/repository'
 
 /**
  * @description Esquema de validación para la categoría de plantilla
- * @constant {z.ZodType}
  */
-const CategorySchema = z.preprocess(
-  val => (typeof val === 'string' ? val.toLocaleLowerCase() : val),
-  z.enum(['swap', 'staking', 'lending'])
-)
+const CategorySchema = z
+  .preprocess(
+    val => (typeof val === 'string' ? val.toLocaleLowerCase() : val),
+    z.enum(['swap', 'staking', 'lending'])
+  )
+  .describe('Categoría de la plantilla. Opciones: "swap", "staking", "lending"')
 
 /**
  * @description Esquema de validación para el nombre del protocolo
- * @constant {z.ZodType}
  */
-const ProtocolSchema = z.string().min(1, 'Protocol name is required')
+const ProtocolSchema = z
+  .string()
+  .min(1, 'Protocol name is required')
+  .optional()
+  .describe(
+    'Nombre del protocolo para filtrar plantillas. Ejemplo: "traderjoe", "aave"'
+  )
+
+/**
+ * @description Esquema para la búsqueda de texto en plantillas
+ */
+const SearchQuerySchema = z
+  .string()
+  .optional()
+  .describe('Texto para buscar en nombres o identificadores de plantillas')
+
+/**
+ * @description Esquema para formato de respuesta
+ */
+const FormatSchema = z
+  .enum(['full', 'summary'])
+  .optional()
+  .default('full')
+  .describe(
+    'Formato de los metadatos. "full" incluye todos los detalles, "summary" solo información básica. Por defecto: "full"'
+  )
 
 /**
  * @description Tiempo máximo de espera para solicitudes fetch en milisegundos
- * @constant {number}
  */
-const FETCH_TIMEOUT_MS = 5000
+const FETCH_TIMEOUT_MS = 8000
 
 /**
  * @description Interfaz para los metadatos de una plantilla
- * @interface TemplateMetadata
  */
 interface TemplateMetadata {
   templateId: string
@@ -37,92 +60,166 @@ interface TemplateMetadata {
 }
 
 /**
+ * @description Lista de protocolos comunes para blockchains
+ */
+const COMMON_PROTOCOLS = [
+  'traderjoe',
+  'uniswap',
+  'pancakeswap',
+  'aave',
+  'compound',
+  'curve'
+]
+
+/**
+ * @description Lista de categorías disponibles
+ */
+const AVAILABLE_CATEGORIES = ['swap', 'staking', 'lending']
+
+/**
+ * @description Interfaz para los parámetros de la herramienta
+ */
+interface TemplateParams {
+  category?: 'swap' | 'staking' | 'lending'
+  protocol?: string
+  query?: string
+  format?: 'full' | 'summary'
+}
+
+/**
  * @description Registra la herramienta get_metadata_of_template en el servidor MCP
- * @param {McpServer} server - Instancia del servidor MCP
  */
 export function registerGetMetadataOfTemplateTool (server: McpServer) {
   server.tool(
     'get_metadata_of_template',
+    'Obtiene metadatos de plantillas según categoría, protocolo y términos de búsqueda',
     {
-      category: CategorySchema.optional(),
-      protocol: ProtocolSchema.optional()
+      category: CategorySchema,
+      protocol: ProtocolSchema,
+      query: SearchQuerySchema,
+      format: FormatSchema
     },
-    async ({ category, protocol }) => {
+    async (params: TemplateParams) => {
       try {
+        const { category, protocol, query, format = 'full' } = params
+
         const repositoryData = await getTemplates()
 
         // Filtrar plantillas relevantes basadas en los parámetros
         const matchingTemplates = filterTemplates(
           repositoryData,
           category,
-          protocol
+          protocol,
+          query
         )
 
         if (matchingTemplates.length === 0) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `No se encontraron plantillas que coincidan con los criterios especificados: ${
-                  category ? `categoría=${category}` : ''
-                } ${protocol ? `protocolo=${protocol}` : ''}`
-              }
-            ]
-          }
+          return createEmptyResponse({ category, protocol, query })
         }
 
         // Obtener metadatos de plantillas filtradas
-        const metadata = await fetchTemplatesMetadata(matchingTemplates)
+        const metadata = await fetchTemplatesMetadata(matchingTemplates, format)
 
         if (metadata.length === 0) {
           return {
             content: [
               {
-                type: 'text',
-                text: 'No se pudo obtener metadatos para ninguna de las plantillas encontradas.'
+                type: 'text' as const,
+                text: 'No se pudo obtener metadatos para ninguna de las plantillas encontradas. Intenta con otros filtros o verifica la conexión.'
               }
             ]
           }
         }
 
+        // Formatear respuesta final
+        const response = formatMetadataResponse(metadata, {
+          category,
+          protocol,
+          query,
+          format,
+          totalTemplates: matchingTemplates.length,
+          fetchedTemplates: metadata.length,
+          timestamp: new Date().toISOString()
+        })
+
         return {
           content: [
             {
-              type: 'text',
-              text: JSON.stringify(metadata, null, 2)
+              type: 'text' as const,
+              text: response
             }
           ]
         }
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : 'Error desconocido'
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error al procesar la solicitud de metadatos de plantilla: ${errorMessage}`
-            }
-          ]
-        }
+        return createErrorResponse(
+          `Error al procesar la solicitud de metadatos de plantilla: ${errorMessage}. ` +
+            `Verifica tu conexión y los parámetros proporcionados. ` +
+            `Categorías disponibles: ${AVAILABLE_CATEGORIES.join(', ')}. ` +
+            `Ejemplos de protocolo: ${COMMON_PROTOCOLS.slice(0, 3).join(', ')}.`
+        )
       }
     }
   )
 }
 
 /**
- * @description Filtra plantillas según categoría y protocolo
- * @param {TemplatesRepository[]} repositories - Repositorios de plantillas
- * @param {string | undefined} category - Categoría opcional para filtrar
- * @param {string | undefined} protocol - Protocolo opcional para filtrar
- * @returns {Array<{template: Template, baseUrl: string, categoryId: string}>} Plantillas filtradas con información de contexto
+ * @description Crea una respuesta de error formateada
+ */
+function createErrorResponse (message: string) {
+  return {
+    content: [{ type: 'text' as const, text: message }],
+    isError: true
+  }
+}
+
+/**
+ * @description Crea una respuesta para cuando no se encuentran plantillas
+ */
+function createEmptyResponse (filters: {
+  category?: string
+  protocol?: string
+  query?: string
+}) {
+  let message = `No se encontraron plantillas`
+
+  const appliedFilters = []
+  if (filters.category) {
+    appliedFilters.push(`categoría: "${filters.category}"`)
+  }
+  if (filters.protocol) {
+    appliedFilters.push(`protocolo: "${filters.protocol}"`)
+  }
+  if (filters.query) {
+    appliedFilters.push(`búsqueda: "${filters.query}"`)
+  }
+
+  if (appliedFilters.length > 0) {
+    message += ` con los filtros: ${appliedFilters.join(', ')}`
+  }
+
+  message +=
+    `. Categorías disponibles: ${AVAILABLE_CATEGORIES.join(', ')}. ` +
+    `Prueba con otros filtros o utiliza valores más generales.`
+
+  return {
+    content: [{ type: 'text' as const, text: message }]
+  }
+}
+
+/**
+ * @description Filtra plantillas según categoría, protocolo y texto de búsqueda
  */
 function filterTemplates (
   repositories: TemplatesRepository[],
   category?: string,
-  protocol?: string
+  protocol?: string,
+  query?: string
 ): Array<{ template: Template; baseUrl: string; categoryId: string }> {
   const lowerCaseCategory = category?.toLowerCase()
   const lowerCaseProtocol = protocol?.toLowerCase()
+  const lowerCaseQuery = query?.toLowerCase()
 
   const results: Array<{
     template: Template
@@ -146,6 +243,15 @@ function filterTemplates (
           continue
         }
 
+        // Saltar plantillas que no coinciden con la búsqueda de texto
+        if (
+          lowerCaseQuery &&
+          !template.name.toLowerCase().includes(lowerCaseQuery) &&
+          !template.id.toLowerCase().includes(lowerCaseQuery)
+        ) {
+          continue
+        }
+
         results.push({
           template,
           baseUrl: repo.baseUrl,
@@ -160,11 +266,10 @@ function filterTemplates (
 
 /**
  * @description Obtiene metadatos para un conjunto de plantillas
- * @param {Array<{template: Template, baseUrl: string, categoryId: string}>} templates - Plantillas para obtener metadatos
- * @returns {Promise<TemplateMetadata[]>} Array de metadatos de plantillas
  */
 async function fetchTemplatesMetadata (
-  templates: Array<{ template: Template; baseUrl: string; categoryId: string }>
+  templates: Array<{ template: Template; baseUrl: string; categoryId: string }>,
+  format: string = 'full'
 ): Promise<TemplateMetadata[]> {
   const fetchPromises = templates.map(
     async ({ template, baseUrl, categoryId }) => {
@@ -191,7 +296,10 @@ async function fetchTemplatesMetadata (
           templateName: template.name,
           category: categoryId,
           protocol: template.protocol,
-          metadata
+          metadata:
+            format === 'summary' && metadata
+              ? simplifyMetadata(metadata)
+              : metadata
         }
       } catch (error) {
         // No interrumpir otras solicitudes si una falla
@@ -208,4 +316,65 @@ async function fetchTemplatesMetadata (
         result.status === 'fulfilled' && result.value !== null
     )
     .map(result => result.value as TemplateMetadata)
+}
+
+/**
+ * @description Simplifica el metadata para el formato resumido
+ */
+function simplifyMetadata (metadata: Record<string, any>): Record<string, any> {
+  // Extraer solo información básica para resumir
+  const simplifiedMetadata: Record<string, any> = {}
+
+  // Incluir solo propiedades de nivel superior para resumir
+  const keysToInclude = [
+    'name',
+    'description',
+    'version',
+    'author',
+    'type',
+    'category'
+  ]
+
+  for (const key of keysToInclude) {
+    if (metadata[key] !== undefined) {
+      simplifiedMetadata[key] = metadata[key]
+    }
+  }
+
+  // Incluir conteo de elementos si hay arrays
+  for (const [key, value] of Object.entries(metadata)) {
+    if (Array.isArray(value)) {
+      simplifiedMetadata[`${key}Count`] = value.length
+    }
+  }
+
+  return simplifiedMetadata
+}
+
+/**
+ * @description Formatea la respuesta final de metadatos
+ */
+function formatMetadataResponse (
+  metadata: TemplateMetadata[],
+  contextInfo: {
+    category?: string
+    protocol?: string
+    query?: string
+    format: string
+    totalTemplates: number
+    fetchedTemplates: number
+    timestamp: string
+  }
+): string {
+  const response = {
+    metadata: {
+      ...contextInfo,
+      availableCategories: AVAILABLE_CATEGORIES,
+      commonProtocols: COMMON_PROTOCOLS,
+      dataFreshness: 'Los datos pueden tener hasta 5 minutos de antigüedad'
+    },
+    templates: metadata
+  }
+
+  return JSON.stringify(response, null, 2)
 }
