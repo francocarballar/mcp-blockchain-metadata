@@ -69,7 +69,7 @@ interface TokenParams {
 export function registerGetProtocolTokensTool (server: McpServer) {
   server.tool(
     'get_protocol_tokens',
-    'Obtiene los tokens de un protocolo específico, opcionalmente filtrados por chain ID',
+    'Obtiene información detallada sobre tokens específicos de protocolos DeFi y blockchain. USAR ESTA HERRAMIENTA cuando se necesite información sobre criptomonedas, tokens, monedas digitales, activos de un protocolo específico como Uniswap, Aave, Curve, TraderJoe o PancakeSwap. Esta herramienta proporciona datos completos como símbolos, direcciones de contrato, decimales y cadenas compatibles de cada token. Es especialmente útil para operaciones de trading, desarrollo de DApps, integración con DEXs, e investigación de compatibilidad entre protocolos y cadenas. Los resultados pueden filtrarse por cadena específica (Ethereum, Polygon, Avalanche, etc.) y ordenarse por nombre, símbolo o popularidad. Cada token devuelto incluye metadatos enriquecidos como URLs de exploradores de blockchain donde se puede verificar el contrato del token.',
     {
       protocol: ProtocolSchema,
       chainId: ChainIdSchema.optional(),
@@ -79,6 +79,49 @@ export function registerGetProtocolTokensTool (server: McpServer) {
     async (params: TokenParams) => {
       try {
         const { protocol, chainId, limit = 50, sort = 'popularity' } = params
+
+        // Proporcionar instrucciones de ayuda si sólo se proporciona el protocolo sin otros parámetros
+        if (protocol && !chainId && limit === 50 && sort === 'popularity') {
+          // Obtener los datos del repositorio para validar el protocolo
+          const repository = await getRepository()
+          const validProtocols = getValidProtocols(repository)
+
+          if (!validProtocols.includes(protocol.toLowerCase())) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `
+# Directorio de Tokens Blockchain
+
+El protocolo "${protocol}" no se encuentra en nuestra base de datos.
+
+## Protocolos disponibles:
+${validProtocols
+  .map(
+    p =>
+      `- **${p}**: Tokens del protocolo ${
+        p.charAt(0).toUpperCase() + p.slice(1)
+      }`
+  )
+  .join('\n')}
+
+## Parámetros adicionales:
+- **chainId**: ID de cadena específica (1=Ethereum, 137=Polygon, 43114=Avalanche)
+- **limit**: Número de tokens a mostrar (1-100)
+- **sort**: Ordenar por "name", "symbol" o "popularity"
+
+## Ejemplos de uso:
+- Para tokens de Uniswap en Ethereum: protocol="uniswap", chainId=1
+- Para los 20 tokens más populares de Aave: protocol="aave", limit=20
+
+Para cada token, se proporcionará nombre, símbolo, dirección del contrato, decimales y metadatos adicionales.
+`
+                }
+              ]
+            }
+          }
+        }
 
         // Validar los parámetros
         if (!protocol) {
@@ -117,6 +160,13 @@ export function registerGetProtocolTokensTool (server: McpServer) {
             )}`
           )
         }
+
+        // Registrar la consulta para análisis
+        console.error(
+          `Búsqueda de tokens para protocolo: ${protocol}, chainId: ${
+            numericChainId || 'todos'
+          }, ordenamiento: ${sort}`
+        )
 
         // Buscar tokens para el protocolo y chain ID especificados
         const tokens = await getTokensByProtocol(protocol, chainId?.toString())
