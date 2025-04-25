@@ -1,8 +1,8 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { registerGetMiniAppEndpointsTool } from '@/tools/getMiniAppEndpoints.tool'
-import { registerGetProtocolTokensTool } from '@/tools/getProtocolTokens.tool'
-import { registerGetMetadataOfTemplateTool } from '@/tools/getMetadataOfTemplate.tool'
+import { registerGetMiniAppEndpointsTool } from './tools/getMiniAppEndpoints.tool'
+import { registerGetProtocolTokensTool } from './tools/getProtocolTokens.tool'
+import { registerGetMetadataOfTemplateTool } from './tools/getMetadataOfTemplate.tool'
 
 async function main () {
   // Crear instancia del servidor MCP

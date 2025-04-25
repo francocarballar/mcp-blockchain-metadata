@@ -1,5 +1,5 @@
-import type { Repository, TemplatesRepository } from '@/types/repository'
-import { REPOSITORY_BASE_URL } from '@/constants/url'
+import type { Repository, TemplatesRepository } from '../types/repository'
+import { REPOSITORY_BASE_URL } from '../constants/url'
 
 let repositoryCache: Repository | null = null
 let repositoryCacheExpiry: number = 0

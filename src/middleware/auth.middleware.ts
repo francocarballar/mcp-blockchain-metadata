@@ -1,6 +1,6 @@
 import { Context } from 'hono'
-import { createErrorResponse, ErrorCode } from '@/utils/error.handler'
-import { logger } from '@/utils/logger'
+import { createErrorResponse, ErrorCode } from '../utils/error.handler'
+import { logger } from '../utils/logger'
 
 /**
  * @function createAuthMiddleware

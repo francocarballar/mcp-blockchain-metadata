@@ -3,29 +3,29 @@ import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 
 // Middleware
-import { createAuthMiddleware } from '@/middleware/auth.middleware'
+import { createAuthMiddleware } from './middleware/auth.middleware'
 
 // Handlers
 import {
   handlePostRequest,
   handleGetRequest,
   handleDeleteRequest
-} from '@/handlers/mcp.handlers'
+} from './handlers/mcp.handlers'
 
 // Utils
-import { setupErrorHandlers } from '@/utils/error.handler'
-import { logger } from '@/utils/logger'
+import { setupErrorHandlers } from './utils/error.handler'
+import { logger } from './utils/logger'
 
 // Config
-import { ENV } from '@/config/environment'
+import { ENV } from './config/environment'
 
 // Tools
-import { registerGetMiniAppEndpointsTool } from '@/tools/getMiniAppEndpoints.tool'
-import { registerGetProtocolTokensTool } from '@/tools/getProtocolTokens.tool'
-import { registerGetMetadataOfTemplateTool } from '@/tools/getMetadataOfTemplate.tool'
+import { registerGetMiniAppEndpointsTool } from './tools/getMiniAppEndpoints.tool'
+import { registerGetProtocolTokensTool } from './tools/getProtocolTokens.tool'
+import { registerGetMetadataOfTemplateTool } from './tools/getMetadataOfTemplate.tool'
 
 // Types
-import { McpToolRegistration } from '@/types/mcp'
+import { McpToolRegistration } from './types/mcp'
 
 /**
  * @function main

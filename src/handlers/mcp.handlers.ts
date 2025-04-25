@@ -4,9 +4,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { ServerResponse, IncomingMessage } from 'http'
-import { createErrorResponse, ErrorCode } from '@/utils/error.handler'
-import { SessionManager } from '@/utils/session.manager'
-import { logger } from '@/utils/logger'
+import { createErrorResponse, ErrorCode } from '../utils/error.handler'
+import { SessionManager } from '../utils/session.manager'
+import { logger } from '../utils/logger'
 
 // Obtener la instancia singleton del gestor de sesiones
 const sessionManager = SessionManager.getInstance()

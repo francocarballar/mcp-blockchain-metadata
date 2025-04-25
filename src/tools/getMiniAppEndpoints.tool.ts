@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { MiniAppEndpoint, Repository } from '@/types/repository'
+import type { MiniAppEndpoint, Repository } from '../types/repository'
 import { z } from 'zod'
-import { getRepository } from '@/services/repository'
+import { getRepository } from '../services/repository'
 
 /**
  * @description Esquema de validación para las categorías de mini aplicaciones

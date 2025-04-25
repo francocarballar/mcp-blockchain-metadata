@@ -1,6 +1,6 @@
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { logger } from './logger'
-import { SessionStore } from '@/types/mcp'
+import { SessionStore } from '../types/mcp'
 
 /**
  * @class SessionManager

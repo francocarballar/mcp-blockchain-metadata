@@ -1,5 +1,5 @@
-import type { TokenInfo } from '@/types/tokens'
-import { PROTOCOL_TOKENLIST_URLS } from '@/constants/url'
+import type { TokenInfo } from '../types/tokens'
+import { PROTOCOL_TOKENLIST_URLS } from '../constants/url'
 
 /**
  * @description Caché de tokens por protocolo y cadena

@@ -1,9 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { Repository } from '@/types/repository'
-import type { TokenInfo } from '@/types/tokens'
+import type { Repository } from '../types/repository'
+import type { TokenInfo } from '../types/tokens'
 import { z } from 'zod'
-import { getRepository } from '@/services/repository'
-import { getTokensByProtocol } from '@/services/tokens'
+import { getRepository } from '../services/repository'
+import { getTokensByProtocol } from '../services/tokens'
 
 /**
  * @description Esquema de validación para protocolos
