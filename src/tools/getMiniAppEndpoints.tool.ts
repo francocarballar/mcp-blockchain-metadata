@@ -87,6 +87,7 @@ export interface ToolResponse {
 export function registerGetMiniAppEndpointsTool (server: McpServer) {
   server.tool(
     'get_miniapp_endpoints',
+    'Obtiene y filtra endpoints de mini aplicaciones blockchain por categoría, estado, protocolo y otros criterios. USAR ESTA HERRAMIENTA cuando se necesite información sobre endpoints, URLs, conectar a una dApp, mini-apps disponibles, integrar aplicaciones blockchain, o buscar servicios DeFi, gaming, NFT o sociales en la blockchain. La herramienta devuelve una lista estructurada en JSON con todos los detalles necesarios para conectarse a aplicaciones blockchain, incluyendo URLs completas, estado de verificación, y categorización. Es útil para desarrolladores, integradores y usuarios que necesitan conocer los puntos de acceso disponibles en el ecosistema blockchain. Las categorías disponibles incluyen DeFi (exchanges, lending, staking), Gaming, NFTs y aplicaciones Sociales.',
     {
       category: RepositoryCategorySchema,
       state: StateFilterSchema,
@@ -104,7 +105,48 @@ export function registerGetMiniAppEndpointsTool (server: McpServer) {
           limit = 50
         } = params
 
+        // Proporcionar instrucciones de ayuda si no hay parámetros específicos
+        if (category === 'all' && state === 'all' && !query && !protocol) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `
+# Directorio de Endpoints de Mini Apps Blockchain
+
+Esta herramienta proporciona acceso a endpoints verificados para mini aplicaciones blockchain.
+
+## Categorías disponibles:
+- **defi**: Aplicaciones financieras descentralizadas (swaps, lending, staking)
+- **gaming**: Juegos basados en blockchain
+- **nft**: Mercados y aplicaciones relacionadas con NFTs
+- **social**: Redes sociales descentralizadas
+
+## Filtros adicionales:
+- **state**: Filtrar por estado de verificación (trusted, pending, rejected)
+- **query**: Buscar términos específicos en hosts o endpoints
+- **protocol**: Filtrar por protocolo (https, http)
+- **limit**: Número máximo de resultados (1-100)
+
+## Ejemplos de uso:
+- Para todos los endpoints DeFi verificados: category="defi", state="trusted"
+- Para endpoints relacionados con swaps: category="defi", query="swap"
+
+Los endpoints se devuelven como JSON estructurado con URLs completas y metadatos.
+`
+              }
+            ]
+          }
+        }
+
         const repositoryData = await getRepository()
+
+        // Si se especificó una categoría específica, registrarla para analítica
+        if (category && category !== 'all') {
+          console.error(
+            `Búsqueda de endpoints para categoría: ${category}, estado: ${state}`
+          )
+        }
 
         // Obtener endpoints filtrados según todos los criterios
         const filteredEndpoints = filterEndpoints(repositoryData, {
