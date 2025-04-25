@@ -4,9 +4,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { ServerResponse, IncomingMessage } from 'http'
+import { createErrorResponse, ErrorCode } from '@/utils/error.handler'
+import { SessionManager } from '@/utils/session.manager'
+import { logger } from '@/utils/logger'
 
-// Mapa para almacenar transportes por ID de sesión
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {}
+// Obtener la instancia singleton del gestor de sesiones
+const sessionManager = SessionManager.getInstance()
 
 /**
  * @function createMcpServer
@@ -35,6 +38,87 @@ export function createMcpServer (
 }
 
 /**
+ * @function createStreamResponse
+ * @description Crea una Response usando ReadableStream para manejar solicitudes MCP
+ * @param {Context} c - Contexto de Hono
+ * @param {StreamableHTTPServerTransport} transport - Transporte MCP
+ * @param {any} [requestBody] - Cuerpo de la solicitud (opcional para GET/DELETE)
+ * @returns {Response} Respuesta para devolver al cliente
+ */
+function createStreamResponse (
+  c: Context,
+  transport: StreamableHTTPServerTransport,
+  requestBody?: any
+): Response {
+  const responseHeaders =
+    c.req.method === 'GET'
+      ? {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive'
+        }
+      : undefined
+
+  return new Response(
+    new ReadableStream({
+      start (controller) {
+        const customRes = new ServerResponse(
+          c.req.raw as unknown as IncomingMessage
+        )
+
+        // Capturar los datos de respuesta
+        customRes.write = chunk => {
+          controller.enqueue(chunk)
+          return true
+        }
+
+        customRes.end = chunk => {
+          if (chunk) controller.enqueue(chunk)
+          controller.close()
+          return customRes
+        }
+
+        // Determinar qué método de transporte usar según existe el cuerpo de solicitud
+        const handleRequest = () => {
+          return requestBody
+            ? transport.handleRequest(
+                c.req.raw as unknown as IncomingMessage,
+                customRes,
+                requestBody
+              )
+            : transport.handleRequest(
+                c.req.raw as unknown as IncomingMessage,
+                customRes
+              )
+        }
+
+        // Manejar la solicitud y capturar posibles errores
+        handleRequest().catch(error => {
+          logger.error(`Error al manejar solicitud ${c.req.method}`, error)
+
+          // Crear respuesta de error según el tipo de solicitud
+          const errorResponse =
+            c.req.method === 'GET' || c.req.method === 'DELETE'
+              ? Buffer.from('Error interno del servidor')
+              : Buffer.from(
+                  JSON.stringify(
+                    createErrorResponse(
+                      ErrorCode.INTERNAL_ERROR,
+                      'Error interno del servidor'
+                    )
+                  )
+                )
+
+          controller.enqueue(errorResponse)
+          controller.close()
+        })
+      }
+    }),
+    { headers: responseHeaders }
+  )
+}
+
+/**
  * @function handlePostRequest
  * @description Maneja solicitudes POST para comunicación cliente-servidor
  * Gestiona inicialización de sesiones y procesamiento de mensajes JSON-RPC
@@ -43,110 +127,42 @@ export function createMcpServer (
  */
 export function handlePostRequest (tools: Array<(server: McpServer) => void>) {
   return async (c: Context) => {
-    const requestBody = await c.req.json()
+    try {
+      const requestBody = await c.req.json()
+      const sessionId = c.req.header('mcp-session-id')
 
-    // Verificar ID de sesión existente
-    const sessionId = c.req.header('mcp-session-id')
-    let transport: StreamableHTTPServerTransport
-
-    if (sessionId && transports[sessionId]) {
-      // Reutilizar transporte existente
-      transport = transports[sessionId]
-    } else if (!sessionId && isInitializeRequest(requestBody)) {
-      // Nueva solicitud de inicialización
-      transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: sessionId => {
-          // Almacenar el transporte por ID de sesión
-          transports[sessionId] = transport
-        }
-      })
-
-      // Limpiar transporte cuando se cierre
-      transport.onclose = () => {
-        if (transport.sessionId) {
-          delete transports[transport.sessionId]
+      // Caso 1: Sesión existente
+      if (sessionId) {
+        const transport = sessionManager.getTransport(sessionId)
+        if (transport) {
+          logger.debug('Reutilizando sesión existente', { sessionId })
+          return createStreamResponse(c, transport, requestBody)
         }
       }
 
-      const server = createMcpServer(tools)
+      // Caso 2: Nueva solicitud de inicialización
+      if (!sessionId && isInitializeRequest(requestBody)) {
+        logger.info('Inicializando nueva sesión MCP')
+        const transport = await initializeSession(tools)
+        return createStreamResponse(c, transport, requestBody)
+      }
 
-      // Conectar al servidor MCP
-      await server.connect(transport)
-    } else {
-      // Solicitud inválida
+      // Caso 3: Solicitud inválida
+      logger.warn('Solicitud POST inválida, sin sesión válida')
       return c.json(
-        {
-          jsonrpc: '2.0',
-          error: {
-            code: -32000,
-            message:
-              'Solicitud incorrecta: No se proporcionó un ID de sesión válido'
-          },
-          id: null
-        },
+        createErrorResponse(
+          ErrorCode.INVALID_SESSION,
+          'Solicitud incorrecta: No se proporcionó un ID de sesión válido'
+        ),
         400
       )
-    }
-
-    // Para StreamableHTTPServerTransport, podemos pasar la solicitud sin procesar y usar la Response de Hono
-    try {
-      // Procesar la solicitud usando StreamableHTTPServerTransport
-      const response = new Response(
-        new ReadableStream({
-          start (controller) {
-            const customRes = new ServerResponse(
-              c.req.raw as unknown as IncomingMessage
-            )
-
-            // Capturar los datos de respuesta
-            customRes.write = chunk => {
-              controller.enqueue(chunk)
-              return true
-            }
-
-            customRes.end = chunk => {
-              if (chunk) controller.enqueue(chunk)
-              controller.close()
-              return customRes
-            }
-
-            // Manejar la solicitud
-            transport
-              .handleRequest(
-                c.req.raw as unknown as IncomingMessage,
-                customRes,
-                requestBody
-              )
-              .catch(error => {
-                console.error('Error al manejar la solicitud:', error)
-                controller.enqueue(
-                  Buffer.from(
-                    JSON.stringify({
-                      jsonrpc: '2.0',
-                      error: {
-                        code: -32603,
-                        message: 'Error interno del servidor'
-                      },
-                      id: null
-                    })
-                  )
-                )
-                controller.close()
-              })
-          }
-        })
-      )
-
-      return response
     } catch (error) {
-      console.error('Error al manejar solicitud StreamableHTTP:', error)
+      logger.error('Error al procesar solicitud POST', error)
       return c.json(
-        {
-          jsonrpc: '2.0',
-          error: { code: -32603, message: 'Error interno del servidor' },
-          id: null
-        },
+        createErrorResponse(
+          ErrorCode.INTERNAL_ERROR,
+          'Error interno del servidor'
+        ),
         500
       )
     }
@@ -154,102 +170,97 @@ export function handlePostRequest (tools: Array<(server: McpServer) => void>) {
 }
 
 /**
+ * @function initializeSession
+ * @description Inicializa una nueva sesión con su transporte
+ * @param {Array<Function>} tools - Funciones para registrar herramientas
+ * @returns {Promise<StreamableHTTPServerTransport>} Transporte inicializado
+ */
+async function initializeSession (
+  tools: Array<(server: McpServer) => void>
+): Promise<StreamableHTTPServerTransport> {
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    onsessioninitialized: sessionId => {
+      sessionManager.addTransport(sessionId, transport)
+      logger.info('Nueva sesión inicializada', { sessionId })
+    }
+  })
+
+  // Limpiar transporte cuando se cierre
+  transport.onclose = () => {
+    if (transport.sessionId) {
+      logger.info('Sesión cerrada', { sessionId: transport.sessionId })
+      sessionManager.removeTransport(transport.sessionId)
+    }
+  }
+
+  const server = createMcpServer(tools)
+  await server.connect(transport)
+
+  return transport
+}
+
+/**
+ * @function validateSessionAndCreateResponse
+ * @description Función común para handlers GET y DELETE
+ * @param {Context} c - Contexto de Hono
+ * @returns {Response|null} Respuesta o null si la sesión no es válida
+ */
+function validateSessionAndCreateResponse (c: Context): Response | null {
+  const sessionId = c.req.header('mcp-session-id')
+  if (!sessionId) {
+    logger.warn('Solicitud sin ID de sesión')
+    return null
+  }
+
+  const transport = sessionManager.getTransport(sessionId)
+  if (!transport) {
+    logger.warn('Sesión no encontrada', { sessionId })
+    return null
+  }
+
+  logger.debug('Sesión validada correctamente', { sessionId })
+  return createStreamResponse(c, transport)
+}
+
+/**
  * @function handleGetRequest
  * @description Maneja solicitudes GET para notificaciones servidor-cliente vía SSE
- * Establece una conexión de eventos para transmitir notificaciones al cliente
  * @returns {Function} Handler para ruta GET de MCP
  */
 export function handleGetRequest () {
   return async (c: Context) => {
-    const sessionId = c.req.header('mcp-session-id')
-    if (!sessionId || !transports[sessionId]) {
-      return c.text('ID de sesión inválido o faltante', 400)
+    const response = validateSessionAndCreateResponse(c)
+    if (!response) {
+      return c.json(
+        createErrorResponse(
+          ErrorCode.INVALID_SESSION,
+          'ID de sesión inválido o faltante'
+        ),
+        400
+      )
     }
-
-    const transport = transports[sessionId]
-
-    // Respuesta SSE
-    return new Response(
-      new ReadableStream({
-        start (controller) {
-          const customRes = new ServerResponse(
-            c.req.raw as unknown as IncomingMessage
-          )
-
-          customRes.write = chunk => {
-            controller.enqueue(chunk)
-            return true
-          }
-
-          customRes.end = chunk => {
-            if (chunk) controller.enqueue(chunk)
-            controller.close()
-            return customRes
-          }
-
-          transport
-            .handleRequest(c.req.raw as unknown as IncomingMessage, customRes)
-            .catch(error => {
-              console.error('Error al manejar solicitud GET:', error)
-              controller.enqueue(Buffer.from('Error interno del servidor'))
-              controller.close()
-            })
-        }
-      }),
-      {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive'
-        }
-      }
-    )
+    return response
   }
 }
 
 /**
  * @function handleDeleteRequest
  * @description Maneja solicitudes DELETE para terminación de sesiones
- * Elimina sesiones y libera recursos asociados
  * @returns {Function} Handler para ruta DELETE de MCP
  */
 export function handleDeleteRequest () {
   return async (c: Context) => {
-    const sessionId = c.req.header('mcp-session-id')
-    if (!sessionId || !transports[sessionId]) {
-      return c.text('ID de sesión inválido o faltante', 400)
+    const response = validateSessionAndCreateResponse(c)
+    if (!response) {
+      return c.json(
+        createErrorResponse(
+          ErrorCode.INVALID_SESSION,
+          'ID de sesión inválido o faltante'
+        ),
+        400
+      )
     }
-
-    const transport = transports[sessionId]
-
-    // Manejar solicitud DELETE
-    return new Response(
-      new ReadableStream({
-        start (controller) {
-          const customRes = new ServerResponse(
-            c.req.raw as unknown as IncomingMessage
-          )
-
-          customRes.write = chunk => {
-            controller.enqueue(chunk)
-            return true
-          }
-
-          customRes.end = chunk => {
-            if (chunk) controller.enqueue(chunk)
-            controller.close()
-            return customRes
-          }
-
-          transport
-            .handleRequest(c.req.raw as unknown as IncomingMessage, customRes)
-            .catch(error => {
-              console.error('Error al manejar solicitud DELETE:', error)
-              controller.enqueue(Buffer.from('Error interno del servidor'))
-              controller.close()
-            })
-        }
-      })
-    )
+    return response
   }
 }
