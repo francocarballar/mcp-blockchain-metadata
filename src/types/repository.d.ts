@@ -14,13 +14,13 @@ export interface IntegratorDomain {
 /**
  * @interface MiniAppEndpoint
  * @description Representa un punto de conexión de mini aplicación en el repositorio.
- * @property {string} host - El host del punto de conexión de la mini aplicación.
- * @property {'trusted' | 'pending' | 'rejected'} state - El estado del punto de conexión de la mini aplicación.
- * @property {string} category - La categoría del punto de conexión de la mini aplicación.
- * @property {string} subcategory - La subcategoría del punto de conexión de la mini aplicación.
- * @property {string} verifiedAt - La fecha y hora en que se verificó el punto de conexión de la mini aplicación.
- * @property {string} protocol - El protocolo del punto de conexión de la mini aplicación.
- * @property {string} endpoint - El punto de conexión de la mini aplicación.
+ * @property {string} host - El host del punto de conexión.
+ * @property {'trusted' | 'pending' | 'rejected'} state - El estado de verificación del punto de conexión.
+ * @property {string} category - La categoría a la que pertenece la mini aplicación.
+ * @property {string} subcategory - La subcategoría opcional a la que pertenece la mini aplicación.
+ * @property {string} verifiedAt - La fecha y hora en que se verificó el punto de conexión.
+ * @property {string} protocol - El protocolo utilizado por la mini aplicación.
+ * @property {string} endpoint - La ruta específica del punto de conexión.
  */
 export interface MiniAppEndpoint {
   host: string
@@ -34,11 +34,11 @@ export interface MiniAppEndpoint {
 
 /**
  * @interface Template
- * @description Representa una plantilla en el repositorio.
- * @property {string} id - El id de la plantilla.
- * @property {string} name - El nombre de la plantilla.
- * @property {string} protocol - El protocolo de la plantilla.
- * @property {string} endpoint - El punto de conexión de la plantilla.
+ * @description Representa una plantilla de mini aplicación disponible en el repositorio.
+ * @property {string} id - El identificador único de la plantilla.
+ * @property {string} name - El nombre descriptivo de la plantilla.
+ * @property {string} protocol - El protocolo compatible con la plantilla.
+ * @property {string} endpoint - El punto de conexión asociado a la plantilla.
  */
 export interface Template {
   id: string
@@ -49,10 +49,10 @@ export interface Template {
 
 /**
  * @interface TemplateCategory
- * @description Representa una categoría de plantillas en el repositorio.
- * @property {string} id - El id de la categoría.
- * @property {string} name - El nombre de la categoría.
- * @property {Template[]} templates - Las plantillas en la categoría.
+ * @description Representa una categoría que agrupa plantillas relacionadas.
+ * @property {string} id - El identificador único de la categoría.
+ * @property {string} name - El nombre descriptivo de la categoría.
+ * @property {Template[]} templates - La lista de plantillas pertenecientes a esta categoría.
  */
 export interface TemplateCategory {
   id: string
@@ -62,9 +62,9 @@ export interface TemplateCategory {
 
 /**
  * @interface TemplatesRepository
- * @description Representa el repositorio de plantillas en el repositorio.
- * @property {string} baseUrl - La URL base del repositorio.
- * @property {TemplateCategory[]} categories - Las categorías de plantillas en el repositorio.
+ * @description Representa la estructura del repositorio de plantillas disponibles.
+ * @property {string} baseUrl - La URL base desde donde se sirven las plantillas.
+ * @property {TemplateCategory[]} categories - Las categorías de plantillas disponibles.
  */
 export interface TemplatesRepository {
   baseUrl: string
@@ -73,11 +73,11 @@ export interface TemplatesRepository {
 
 /**
  * @interface MaliciousDomain
- * @description Representa un dominio malicioso en el repositorio.
- * @property {string} domain - El dominio del dominio malicioso.
- * @property {string} reportedAt - La fecha y hora en que se reportó el dominio malicioso.
- * @property {string} reportReason - El motivo del reporte del dominio malicioso.
- * @property {string} similarTo - El dominio que es similar al dominio malicioso.
+ * @description Representa un dominio identificado como malicioso o fraudulento.
+ * @property {string} domain - La dirección del dominio malicioso.
+ * @property {string} reportedAt - La fecha y hora en que se reportó como malicioso.
+ * @property {string} reportReason - El motivo por el cual se considera malicioso.
+ * @property {string} similarTo - Opcional: dominio legítimo al que intenta suplantar.
  */
 export interface MaliciousDomain {
   domain: string
@@ -88,13 +88,13 @@ export interface MaliciousDomain {
 
 /**
  * @interface Repository
- * @description Representa el repositorio del repositorio.
- * @property {string} lastUpdated - La fecha y hora en que se actualizó por última vez el repositorio.
- * @property {string} version - La versión del repositorio.
- * @property {IntegratorDomain[]} integratorDomains - Los dominios de integradores en el repositorio.
- * @property {MiniAppEndpoint[]} miniAppEndpoints - Los puntos de conexión de mini aplicaciones en el repositorio.
- * @property {TemplatesRepository[]} templates - Las plantillas en el repositorio.
- * @property {MaliciousDomain[]} maliciousDomains - Los dominios maliciosos en el repositorio.
+ * @description Representa la estructura principal del repositorio de metadatos de blockchain.
+ * @property {string} lastUpdated - La fecha y hora de la última actualización del repositorio.
+ * @property {string} version - La versión actual del repositorio.
+ * @property {IntegratorDomain[]} integratorDomains - Lista de dominios de integradores registrados.
+ * @property {MiniAppEndpoint[]} miniAppEndpoints - Lista de puntos de conexión de mini aplicaciones.
+ * @property {TemplatesRepository[]} templates - Colección de repositorios de plantillas disponibles.
+ * @property {MaliciousDomain[]} maliciousDomains - Lista de dominios identificados como maliciosos.
  */
 export interface Repository {
   lastUpdated: string
@@ -107,11 +107,11 @@ export interface Repository {
 
 /**
  * @interface MiniAppSearchParams
- * @description Representa los parámetros para la búsqueda de mini aplicaciones.
- * @property {string} query - La consulta para la búsqueda de mini aplicaciones.
- * @property {string} category - La categoría para la búsqueda de mini aplicaciones.
- * @property {string} subcategory - La subcategoría para la búsqueda de mini aplicaciones.
- * @property {string} protocol - El protocolo para la búsqueda de mini aplicaciones.
+ * @description Parámetros de búsqueda para filtrar mini aplicaciones.
+ * @property {string} query - Término de búsqueda textual.
+ * @property {string} category - Filtro por categoría específica.
+ * @property {string} subcategory - Filtro por subcategoría específica.
+ * @property {string} protocol - Filtro por protocolo compatible.
  */
 export interface MiniAppSearchParams {
   query?: string
@@ -122,10 +122,10 @@ export interface MiniAppSearchParams {
 
 /**
  * @interface MiniAppSearchResult
- * @description Representa el resultado de la búsqueda de mini aplicaciones.
- * @property {MiniAppEndpoint} endpoint - El punto de conexión de la mini aplicación.
- * @property {number} relevance - La relevancia de la mini aplicación.
- * @property {string} matchReason - El motivo de la coincidencia de la mini aplicación.
+ * @description Resultado obtenido tras una búsqueda de mini aplicaciones.
+ * @property {MiniAppEndpoint} endpoint - El punto de conexión de la mini aplicación encontrada.
+ * @property {number} relevance - Puntuación numérica de relevancia respecto a la búsqueda.
+ * @property {string} matchReason - Explicación de por qué este resultado coincide con la búsqueda.
  */
 export interface MiniAppSearchResult {
   endpoint: MiniAppEndpoint
@@ -135,11 +135,11 @@ export interface MiniAppSearchResult {
 
 /**
  * @interface CustomizeMiniAppEndpointParams
- * @description Representa los parámetros para personalizar el punto de conexión de mini aplicaciones.
- * @property {string} type - El tipo del punto de conexión personalizado de mini aplicaciones.
- * @property {string} host - El host del punto de conexión personalizado de mini aplicaciones.
- * @property {string} endpoint - El punto de conexión personalizado de mini aplicaciones.
- * @property {Record<string, any>} params - Los parámetros del punto de conexión personalizado de mini aplicaciones.
+ * @description Parámetros para personalizar una mini aplicación mediante un punto de conexión directo.
+ * @property {string} type - Tipo de personalización, siempre 'endpoint' para este caso.
+ * @property {string} host - El host del punto de conexión que se utilizará.
+ * @property {string} endpoint - La ruta específica del punto de conexión.
+ * @property {Record<string, any>} params - Parámetros adicionales para la configuración.
  */
 export interface CustomizeMiniAppEndpointParams {
   type: 'endpoint'
@@ -150,11 +150,11 @@ export interface CustomizeMiniAppEndpointParams {
 
 /**
  * @interface CustomizeMiniAppTemplateParams
- * @description Representa los parámetros para personalizar la plantilla de mini aplicaciones.
- * @property {string} type - El tipo de la plantilla personalizada de mini aplicaciones.
- * @property {string} categoryId - El id de la categoría de la plantilla personalizada de mini aplicaciones.
- * @property {string} templateId - El id de la plantilla personalizada de mini aplicaciones.
- * @property {Record<string, any>} params - Los parámetros de la plantilla personalizada de mini aplicaciones.
+ * @description Parámetros para personalizar una mini aplicación utilizando una plantilla predefinida.
+ * @property {string} type - Tipo de personalización, siempre 'template' para este caso.
+ * @property {string} categoryId - El identificador de la categoría de la plantilla.
+ * @property {string} templateId - El identificador de la plantilla específica.
+ * @property {Record<string, any>} params - Parámetros adicionales para configurar la plantilla.
  */
 export interface CustomizeMiniAppTemplateParams {
   type: 'template'
@@ -165,8 +165,8 @@ export interface CustomizeMiniAppTemplateParams {
 
 /**
  * @type {CustomizeMiniAppParams}
- * @description Representa los parámetros para personalizar la mini aplicación.
- * @property {CustomizeMiniAppEndpointParams | CustomizeMiniAppTemplateParams} params - Los parámetros de la mini aplicación personalizada.
+ * @description Tipo unión que representa las dos posibles formas de personalizar una mini aplicación.
+ * @property {CustomizeMiniAppEndpointParams | CustomizeMiniAppTemplateParams} params - Los parámetros específicos según el método de personalización elegido.
  */
 export type CustomizeMiniAppParams =
   | CustomizeMiniAppEndpointParams
