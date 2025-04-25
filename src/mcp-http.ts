@@ -14,6 +14,7 @@ import {
 
 // Utils
 import { setupErrorHandlers } from '@/utils/error.handler'
+import { logger } from '@/utils/logger'
 
 // Config
 import { ENV } from '@/config/environment'
@@ -23,14 +24,8 @@ import { registerGetMiniAppEndpointsTool } from '@/tools/getMiniAppEndpoints.too
 import { registerGetProtocolTokensTool } from '@/tools/getProtocolTokens.tool'
 import { registerGetMetadataOfTemplateTool } from '@/tools/getMetadataOfTemplate.tool'
 
-// Configurar manejo de errores mejorado
-process.on('uncaughtException', error => {
-  console.error('Excepción no capturada:', error)
-})
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Rechazo no manejado en:', promise, 'razón:', reason)
-})
+// Types
+import { McpToolRegistration } from '@/types/mcp'
 
 /**
  * @function main
@@ -39,44 +34,56 @@ process.on('unhandledRejection', (reason, promise) => {
  * @returns {Promise<void>}
  */
 async function main () {
-  console.log(`Iniciando servidor MCP en modo ${ENV.NODE_ENV}`)
+  try {
+    // Validar variables de entorno requeridas
+    ENV.validateRequiredVars(['PORT', 'NODE_ENV'])
 
-  // Configurar manejadores de errores globales
-  setupErrorHandlers()
+    // Configurar manejadores de errores globales
+    setupErrorHandlers()
 
-  // Herramientas a registrar en el servidor MCP
-  const mcpTools = [
-    registerGetMiniAppEndpointsTool,
-    registerGetProtocolTokensTool,
-    registerGetMetadataOfTemplateTool
-  ]
+    logger.info(`Iniciando servidor MCP en modo ${ENV.NODE_ENV}`, {
+      port: ENV.PORT,
+      auth: ENV.AUTH_TOKEN ? 'configurado' : 'no configurado'
+    })
 
-  const app = new Hono()
+    // Herramientas a registrar en el servidor MCP
+    const mcpTools: McpToolRegistration[] = [
+      registerGetMiniAppEndpointsTool,
+      registerGetProtocolTokensTool,
+      registerGetMetadataOfTemplateTool
+    ]
 
-  // Crear middleware de autenticación
-  const authMiddleware = createAuthMiddleware(ENV.AUTH_TOKEN)
+    const app = new Hono()
 
-  // Aplicar middleware de autenticación a endpoints MCP
-  app.use('/mcp', authMiddleware)
+    // Crear middleware de autenticación
+    const authMiddleware = createAuthMiddleware(ENV.AUTH_TOKEN)
 
-  // Configurar rutas MCP
-  app.post('/mcp', handlePostRequest(mcpTools))
-  app.get('/mcp', handleGetRequest())
-  app.delete('/mcp', handleDeleteRequest())
+    // Aplicar middleware de autenticación a endpoints MCP
+    app.use('/mcp', authMiddleware)
 
-  // Iniciar el servidor con el adaptador de servidor node de Hono
-  serve(
-    {
-      fetch: app.fetch,
-      port: Number(ENV.PORT)
-    },
-    (info: { port: number }) => {
-      console.log(`Servidor MCP ejecutándose en el puerto ${info.port}`)
-    }
-  )
+    // Configurar rutas MCP
+    app.post('/mcp', handlePostRequest(mcpTools))
+    app.get('/mcp', handleGetRequest())
+    app.delete('/mcp', handleDeleteRequest())
+
+    // Iniciar el servidor con el adaptador de servidor node de Hono
+    serve(
+      {
+        fetch: app.fetch,
+        port: Number(ENV.PORT)
+      },
+      (info: { port: number }) => {
+        logger.info(`Servidor MCP ejecutándose en el puerto ${info.port}`)
+      }
+    )
+  } catch (error) {
+    logger.fatal('Error fatal al iniciar el servidor MCP', error)
+    process.exit(1)
+  }
 }
 
+// Iniciar la aplicación
 main().catch(error => {
-  console.error('Error en el servidor HTTP MCP:', error)
+  logger.fatal('Error no manejado en la función principal', error)
   process.exit(1)
 })
