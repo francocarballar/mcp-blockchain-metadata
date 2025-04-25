@@ -1,6 +1,7 @@
 {
   "name": "mcp-blockchain-metadata",
   "description": "MCP Blockchain Metadata",
+  "version": "1.0.0",
   "author": {
     "name": "Franco Carballar",
     "email": "francocarballar@gmail.com",
