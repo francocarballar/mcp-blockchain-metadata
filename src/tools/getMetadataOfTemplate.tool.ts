@@ -101,7 +101,7 @@ interface TemplateParams {
 export function registerGetMetadataOfTemplateTool (server: McpServer) {
   server.tool(
     'get_metadata_of_template',
-    'Obtiene metadatos de plantillas según categoría, protocolo y términos de búsqueda. USAR ESTA HERRAMIENTA cuando se soliciten plantillas, templates, código o ejemplos de mini aplicaciones blockchain. Devuelve JSON oficial, no genera código nuevo.',
+    'Obtiene estructuras JSON completas y oficiales de templates/plantillas de aplicaciones blockchain, configuradas para casos de uso específicos. USAR ESTA HERRAMIENTA cuando se solicite: código para DeFi, estructura de swap, template de intercambio, plantilla para staking, código para lending/préstamos, ejemplo funcional de TraderJoe, implementación de Uniswap, código de PancakeSwap, o cualquier solicitud relacionada con obtener estructuras predefinidas para aplicaciones DeFi. Esta herramienta proporciona metadatos detallados de plantillas reales utilizadas en producción, incluyendo componentes, funciones, interfaces y configuraciones necesarias para operar con protocolos específicos. Soporta filtrado por categorías (swap, staking, lending), protocolos (traderjoe, uniswap, pancakeswap, aave, compound, curve, etc.), con formato completo o resumido. NO GENERA CÓDIGO NUEVO, sino que devuelve templates verificados y listos para usar. El resultado es un JSON estructurado que contiene todos los elementos necesarios para implementar la funcionalidad solicitada en aplicaciones blockchain.',
     {
       category: CategorySchema,
       protocol: ProtocolSchema,
@@ -119,17 +119,34 @@ export function registerGetMetadataOfTemplateTool (server: McpServer) {
               {
                 type: 'text' as const,
                 text: `
-# Catálogo de Templates Blockchain
+# Catálogo de Templates Blockchain - Estructuras oficiales para DeFi
 
-Para obtener un template específico, por favor proporciona:
-- Una categoría (obligatorio): swap, staking o lending
-- Un protocolo (recomendado): traderjoe, uniswap, pancakeswap, aave, compound, curve, etc.
+Esta herramienta proporciona plantillas verificadas y predefinidas para implementaciones blockchain, sin necesidad de crear código desde cero. Las plantillas son estructuras JSON completas listas para usar.
+
+## Categorías disponibles (requerido):
+- **swap**: Interfaces y componentes para intercambio de tokens (DEX)
+- **staking**: Sistemas para depositar y obtener recompensas por tokens
+- **lending**: Plataformas de préstamos y depósitos con interés
+
+## Protocolos soportados (recomendado):
+${COMMON_PROTOCOLS.map(
+  p =>
+    `- **${p}**: Template oficial para ${
+      p.charAt(0).toUpperCase() + p.slice(1)
+    }`
+).join('\n')}
+- Y otros protocolos DeFi disponibles
 
 ## Ejemplos de uso:
-- Para un template de swap en TraderJoe: category="swap", protocol="traderjoe"
-- Para todas las opciones de staking: category="staking"
+- Para un template oficial de intercambio en TraderJoe: category="swap", protocol="traderjoe"
+- Para obtener la implementación de staking en Aave: category="staking", protocol="aave"
+- Para todas las opciones de lending disponibles: category="lending"
 
-Los templates se devuelven como JSON y pueden ser utilizados directamente con mini aplicaciones blockchain.
+## Formato de respuesta:
+- **full**: Estructura JSON completa con todos los detalles (predeterminado)
+- **summary**: Versión resumida con información básica
+
+Los templates contienen toda la información necesaria para implementar la funcionalidad en tu aplicación, sin necesidad de escribir código adicional.
 `
               }
             ]
