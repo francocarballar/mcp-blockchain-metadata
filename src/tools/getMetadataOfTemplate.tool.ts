@@ -28,9 +28,12 @@ const ProtocolSchema = z
  * @description Esquema para la búsqueda de texto en plantillas
  */
 const SearchQuerySchema = z
-  .string()
+  .union([z.string(), z.null()])
+  .transform(val => (val === null ? '' : val))
   .optional()
-  .describe('Texto para buscar en nombres o identificadores de plantillas')
+  .describe(
+    'Texto para buscar en nombres o identificadores de plantillas. Puede ser null para no filtrar por texto.'
+  )
 
 /**
  * @description Esquema para formato de respuesta
@@ -217,6 +220,12 @@ function filterTemplates (
   protocol?: string,
   query?: string
 ): Array<{ template: Template; baseUrl: string; categoryId: string }> {
+  console.error(
+    `Buscando plantillas con: categoria=${
+      category || 'cualquiera'
+    }, protocolo=${protocol || 'cualquiera'}, query=${query || 'ninguna'}`
+  )
+
   const lowerCaseCategory = category?.toLowerCase()
   const lowerCaseProtocol = protocol?.toLowerCase()
   const lowerCaseQuery = query?.toLowerCase()
@@ -228,11 +237,17 @@ function filterTemplates (
   }> = []
 
   for (const repo of repositories) {
+    console.error(`Explorando repositorio con baseUrl: ${repo.baseUrl}`)
+
     for (const cat of repo.categories) {
       // Saltar categorías que no coinciden con el filtro
       if (lowerCaseCategory && cat.id.toLowerCase() !== lowerCaseCategory) {
         continue
       }
+
+      console.error(
+        `Explorando categoría: ${cat.id} con ${cat.templates.length} plantillas`
+      )
 
       for (const template of cat.templates) {
         // Saltar protocolos que no coinciden con el filtro
@@ -252,6 +267,10 @@ function filterTemplates (
           continue
         }
 
+        console.error(
+          `Plantilla encontrada: ${template.id} (${template.name}) del protocolo ${template.protocol} - endpoint: ${template.endpoint}`
+        )
+
         results.push({
           template,
           baseUrl: repo.baseUrl,
@@ -261,6 +280,7 @@ function filterTemplates (
     }
   }
 
+  console.error(`Total de plantillas encontradas: ${results.length}`)
   return results
 }
 
@@ -271,9 +291,15 @@ async function fetchTemplatesMetadata (
   templates: Array<{ template: Template; baseUrl: string; categoryId: string }>,
   format: string = 'full'
 ): Promise<TemplateMetadata[]> {
+  // Log cuántas plantillas se encontraron
+  console.error(
+    `Encontradas ${templates.length} plantillas que coinciden con los criterios`
+  )
+
   const fetchPromises = templates.map(
     async ({ template, baseUrl, categoryId }) => {
       const metadataUrl = `${baseUrl}${template.endpoint}`
+      console.error(`Intentando obtener datos de: ${metadataUrl}`)
 
       try {
         // Implementar timeout para evitar solicitudes colgadas
@@ -286,10 +312,14 @@ async function fetchTemplatesMetadata (
         clearTimeout(timeoutId)
 
         if (!response.ok) {
+          console.error(
+            `Error en la respuesta para ${metadataUrl}: ${response.status} ${response.statusText}`
+          )
           return null
         }
 
         const metadata = await response.json()
+        console.error(`Datos obtenidos correctamente de ${metadataUrl}`)
 
         return {
           templateId: template.id,
@@ -303,12 +333,24 @@ async function fetchTemplatesMetadata (
         }
       } catch (error) {
         // No interrumpir otras solicitudes si una falla
+        console.error(
+          `Error obteniendo datos de ${metadataUrl}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        )
         return null
       }
     }
   )
 
   const results = await Promise.allSettled(fetchPromises)
+  const successful = results.filter(
+    r => r.status === 'fulfilled' && r.value !== null
+  ).length
+
+  console.error(
+    `De ${templates.length} plantillas encontradas, se obtuvieron datos para ${successful}`
+  )
 
   return results
     .filter(
