@@ -1,5 +1,15 @@
 {
   "name": "mcp-blockchain-metadata",
+  "author": {
+    "name": "Franco Carballar",
+    "email": "francocarballar@gmail.com",
+    "url": "https://www.francocarballar.com/"
+  },
+  "homepage": "https://www.francocarballar.com/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/francocarballar/mcp-blockchain-metadata.git"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
