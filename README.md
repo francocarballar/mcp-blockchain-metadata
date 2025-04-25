@@ -57,6 +57,7 @@ Este proyecto implementa un servidor MCP con las siguientes características arq
 - **Middleware**: Para autenticación y validación de peticiones, asegurando que solo clientes autorizados puedan acceder
 - **Gestión de errores centralizada**: Sistema consistente de manejo de errores con niveles de detalle apropiados
 - **Sistema de logging estructurado**: Logs en formato JSON con metadatos para facilitar monitoreo y depuración
+- **Soporte para Cloudflare Workers**: Estructura optimizada para despliegue serverless que mejora el rendimiento global
 
 <div align="center">
   <img src="./public/img/arquitectura-server-mcp.png" alt="Arquitectura del Servidor MCP" width="700"/>
@@ -252,7 +253,7 @@ mcp-blockchain-metadata/
 │   │   ├── logger.ts          # Sistema de logs estructurados
 │   │   └── session.manager.ts # Gestor de sesiones
 │   ├── index.ts               # Punto de entrada (Cloudflare Workers)
-│   ├── mcp-http.ts            # Servidor MCP con transporte HTTP
+│   ├── mcp-http.ts            # Configuración MCP con transporte HTTP
 │   └── mcp-stdio.ts           # Servidor MCP con transporte stdio
 ├── public/                    # Archivos estáticos
 │   └── img/                   # Imágenes para documentación
@@ -288,10 +289,12 @@ import {
   registerGetMetadataOfTemplateTool
 } from './tools'
 
-async function main() {
-  // Validar variables de entorno
-  ENV.validateRequiredVars(['PORT', 'NODE_ENV'])
-
+/**
+ * Configures MCP routes on the provided Hono app instance
+ * @param app Hono app instance to configure
+ * @returns The configured Hono app
+ */
+export function setupMcpRoutes<T extends object = {}>(app: Hono<T>) {
   // Herramientas a registrar
   const mcpTools = [
     registerGetMiniAppEndpointsTool,
@@ -299,27 +302,45 @@ async function main() {
     registerGetMetadataOfTemplateTool
   ]
 
-  const app = new Hono()
-
   // Middleware de autenticación
   const authMiddleware = createAuthMiddleware(ENV.AUTH_TOKEN)
-  app.use('/mcp', authMiddleware)
+  app.use('/sse', authMiddleware)
 
   // Rutas MCP
-  app.post('/mcp', handlePostRequest(mcpTools))
-  app.get('/mcp', handleGetRequest())
-  app.delete('/mcp', handleDeleteRequest())
+  app.post('/sse', handlePostRequest(mcpTools))
+  app.get('/sse', handleGetRequest())
+  app.delete('/sse', handleDeleteRequest())
 
-  // Iniciar servidor
-  serve(
-    {
-      fetch: app.fetch,
-      port: Number(ENV.PORT)
-    },
-    info => {
-      logger.info(`Servidor MCP ejecutándose en puerto ${info.port}`)
-    }
-  )
+  return app
+}
+
+async function main() {
+  try {
+    // Validar variables de entorno requeridas
+    ENV.validateRequiredVars(['PORT', 'NODE_ENV'])
+
+    // Configurar manejadores de errores globales
+    setupErrorHandlers()
+
+    const app = new Hono()
+
+    // Configurar rutas MCP
+    setupMcpRoutes(app)
+
+    // Iniciar servidor
+    serve(
+      {
+        fetch: app.fetch,
+        port: Number(ENV.PORT)
+      },
+      info => {
+        logger.info(`Servidor MCP ejecutándose en puerto ${info.port}`)
+      }
+    )
+  } catch (error) {
+    logger.fatal('Error fatal al iniciar el servidor MCP', error)
+    process.exit(1)
+  }
 }
 ```
 
@@ -717,9 +738,9 @@ yarn run start
 
 ### 3. Opciones de Despliegue
 
-#### Cloudflare Workers
+#### Cloudflare Workers (Recomendado)
 
-Esta aplicación está configurada para desplegarse en Cloudflare Workers, una plataforma serverless con baja latencia global.
+Esta aplicación está diseñada específicamente para desplegarse en Cloudflare Workers, una plataforma serverless con baja latencia global.
 
 ```bash
 # Desplegar a Cloudflare Workers
@@ -744,17 +765,29 @@ El despliegue utiliza `wrangler`, la CLI oficial de Cloudflare Workers. La confi
 }
 ```
 
+El archivo `src/index.ts` es el punto de entrada para Cloudflare Workers y utiliza la función `setupMcpRoutes` para configurar las rutas del servidor MCP:
+
+```typescript
+import { Hono } from 'hono'
+import { setupMcpRoutes } from './mcp-http'
+
+const app = new Hono<{ Bindings: CloudflareBindings }>()
+
+// Configurar las rutas MCP reutilizando la lógica existente
+setupMcpRoutes(app)
+
+export default app
+```
+
 #### Servicios basados en Node.js
 
 Estas opciones te permiten ejecutar tu servidor MCP (con Bun o Node.js) en plataformas PaaS sin necesidad de gestionar infraestructura.
-
----
 
 ##### Cloudflare Workers
 
 1. **Prerrequisitos**
 
-   - Cuenta en Cloudflare y la zona “Workers” habilitada en tu panel.
+   - Cuenta en Cloudflare y la zona "Workers" habilitada en tu panel.
    - Wrangler CLI instalado:
 
      ```bash
@@ -821,7 +854,7 @@ Estas opciones te permiten ejecutar tu servidor MCP (con Bun o Node.js) en plata
      # o bun run dev
      ```
 
-     Accede a `http://127.0.0.1:8787/mcp` para probar tu endpoint JSON-RPC.
+     Accede a `http://127.0.0.1:8787/sse` para probar tu endpoint JSON-RPC.
 
    - **Publicar en Cloudflare**:
 
@@ -833,7 +866,7 @@ Estas opciones te permiten ejecutar tu servidor MCP (con Bun o Node.js) en plata
      Tras unos segundos tu Worker quedará activo en:
 
      ```
-     https://mcp-blockchain-metadata.mcp-blockchain-metadata.workers.dev/mcp
+     https://mcp-blockchain-metadata.mcp-blockchain-metadata.workers.dev/sse
      ```
 
 6. **Logs y debugging**
@@ -849,231 +882,7 @@ Estas opciones te permiten ejecutar tu servidor MCP (con Bun o Node.js) en plata
 7. **Puntos a tener en cuenta**
    - **Sin servidor**: no gestionas instancias, Cloudflare escala automáticamente.
    - **Límites free**: 100 000 invocaciones/día y 10 ms CPU por invocación en el plan gratuito.
-   - **Rutas personalizadas**: si quieres exponer solo `/mcp`, ajusta en `routes` o en el Dashboard (Triggers → Add route).
-
-Con esto tu servidor MCP estará corriendo en un entorno serverless globalmente distribuido, gratis hasta los límites del plan gratuito de Cloudflare Workers.
-
-##### Vercel
-
-1. **Prerrequisitos**
-
-   - Cuenta en Vercel (<https://vercel.com>)
-   - Vercel CLI opcional (`npm i -g vercel`)
-
-2. **Configuración**
-
-   - Crea un `vercel.json` en la raíz:
-
-     ```json
-     {
-       "version": 2,
-       "builds": [{ "src": "src/index.ts", "use": "@vercel/node" }],
-       "routes": [
-         { "src": "/mcp/(.*)", "dest": "src/index.ts" },
-         { "src": "/(.*)", "dest": "src/index.ts" }
-       ]
-     }
-     ```
-
-   - En tu `package.json` asegúrate de tener:
-
-     ```json
-     "scripts": {
-       "start": "bun run start",      // o "node dist/index.js" si construyes
-       "build": "tsc"                 // si usas TypeScript con salida en /dist
-     }
-     ```
-
-3. **Entorno**
-
-   - En el Dashboard de Vercel → Settings → Environment Variables, añade:
-     - `PORT` (por ejemplo `3000`)
-     - `AUTH_TOKEN`
-     - `LOG_LEVEL`
-
-4. **Despliegue**
-
-   ```bash
-   vercel --prod
-   ```
-
-   Vercel detectará tu `vercel.json`, ejecutará `build` y pondrá en marcha `start`.
-
-   - **Logs**: `vercel logs <deployment-url> --since 1h`
-
----
-
-##### Railway
-
-1. **Prerrequisitos**
-
-   - Cuenta en Railway (<https://railway.app>)
-   - Railway CLI (`npm i -g railway`)
-
-2. **Preparación**
-
-   - En `package.json`:
-
-     ```json
-     "scripts": {
-       "start": "bun run start",
-       "build": "tsc"
-     }
-     ```
-
-   - (Opcional) Añade un `railway.json` para personalizar builds:
-
-     ```json
-     {
-       "build": {
-         "builder": "bun",
-         "command": "bun install && bun run build"
-       }
-     }
-     ```
-
-3. **Variables de entorno**  
-   En el panel de tu proyecto → Settings → Variables, crea:
-
-   - `PORT`
-   - `AUTH_TOKEN`
-   - `LOG_LEVEL`
-
-4. **Despliegue**
-
-   ```bash
-   railway init     # si aún no has utilizado Railway
-   railway up       # detecta tu proyecto y lo despliega
-   ```
-
-5. **Monitoreo**
-   - Logs en tiempo real: `railway logs`
-   - Envoys métricas en el dashboard
-
----
-
-##### Heroku
-
-1. **Prerrequisitos**
-
-   - Cuenta en Heroku (<https://heroku.com>)
-   - Heroku CLI (`npm i -g heroku`)
-
-2. **Procfile**  
-   En la raíz, crea un archivo llamado `Procfile`:
-
-   ```
-   web: bun run start
-   ```
-
-3. **package.json**  
-   Verifica que exista:
-
-   ```json
-   "scripts": {
-     "start": "bun run start",
-     "build": "tsc"
-   }
-   ```
-
-4. **Despliegue**
-
-   ```bash
-   heroku create nombre-de-tu-app
-   git push heroku main
-   ```
-
-5. **Configuración de entorno**
-
-   ```bash
-   heroku config:set AUTH_TOKEN=tu_token_secure
-   heroku config:set LOG_LEVEL=info
-   ```
-
-6. **Logs**
-
-   ```bash
-   heroku logs --tail
-   ```
-
----
-
-##### AWS / GCP / Azure
-
-Puedes desplegar tu servidor como contenedor Docker o directamente en sus servicios Node.js:
-
-1. **Dockerfile** (válido para Cloud Run, App Service, ECS, EB, Azure Container Apps…):
-
-   ```dockerfile
-   FROM oven/bun:latest
-   WORKDIR /app
-   COPY . .
-   RUN bun install
-   CMD ["bun", "run", "start"]
-   ```
-
-2. **Construcción y publicación**
-
-   ```bash
-   docker build -t tu-registry/mcp-metadata:latest .
-   docker push tu-registry/mcp-metadata:latest
-   ```
-
-3. **Despliegue**
-
-   - **Google Cloud Run**:
-
-     ```bash
-     gcloud run deploy mcp-metadata \
-       --image=tu-registry/mcp-metadata:latest \
-       --set-env-vars=AUTH_TOKEN=tu_token,LOG_LEVEL=info \
-       --region=us-central1 --platform=managed
-     ```
-
-   - **AWS Elastic Container Service / Beanstalk**:
-
-     - ECS: define un servicio apuntando a la imagen, configura vars en el Task Definition.
-     - Elastic Beanstalk:
-
-       ```bash
-       eb init --platform docker mcp-metadata
-       eb create mcp-metadata-env
-       eb setenv AUTH_TOKEN=tu_token LOG_LEVEL=info
-       ```
-
-   - **Azure Container Apps / App Service**:
-     - Container Apps: crea un recurso apuntando a la imagen y añade las variables en la sección de Configuration.
-     - App Service (Linux): selecciona Docker, configuración de imagen y app settings para `AUTH_TOKEN`, `LOG_LEVEL`.
-
-4. **Sin Docker (solo Node.js)**
-
-   - **Elastic Beanstalk Node.js**:
-
-     ```bash
-     eb init -p node.js mcp-metadata
-     eb create mcp-metadata-env
-     eb setenv AUTH_TOKEN=tu_token LOG_LEVEL=info
-     ```
-
-   - **Azure App Service** (Linux, Node.js stack):
-
-     - Elige Node.js 18+, configura `startup command`:
-
-       ```
-       bun run start
-       ```
-
-     - Añade Application Settings para variables de entorno.
-
----
-
-> **Buenas prácticas para todos los despliegues Node.js**
->
-> - Nunca subas tu `.env` al repositorio; siempre usa la UI o CLI de la plataforma para definir vars seguras.
-> - Usa HTTPS/SSL y revisa los certificados en producción.
-> - Configura alertas y métricas (CPU, memoria, latencia) para detectar anomalías.
-> - Asegura la puerta de enlace (CORS, rate limiting) si expones tu API públicamente.
-> - Mantén actualizadas las dependencias y automatiza builds vía GitHub Actions, GitLab CI o similares.
+   - **Rutas personalizadas**: si quieres exponer solo `/sse`, ajusta en `routes` o en el Dashboard (Triggers → Add route).
 
 ## 📘 API Reference
 
@@ -1081,13 +890,13 @@ Puedes desplegar tu servidor como contenedor Docker o directamente en sus servic
 
 El servidor expone un endpoint principal para comunicación JSON-RPC:
 
-- **POST /mcp**: Procesa peticiones JSON-RPC 2.0 para ejecutar herramientas
+- **POST /sse**: Procesa peticiones JSON-RPC 2.0 para ejecutar herramientas
   - Content-Type: application/json
   - Authorization: Bearer TOKEN
-- **GET /mcp**: Establece conexión SSE (Server-Sent Events) para notificaciones en tiempo real
+- **GET /sse**: Establece conexión SSE (Server-Sent Events) para notificaciones en tiempo real
   - Accept: text/event-stream
   - Authorization: Bearer TOKEN
-- **DELETE /mcp**: Termina sesiones activas
+- **DELETE /sse**: Termina sesiones activas
   - Authorization: Bearer TOKEN
   - Query params: sessionId (opcional)
 
@@ -1167,6 +976,15 @@ El servidor expone un endpoint principal para comunicación JSON-RPC:
 }
 ```
 
+**Ejemplo con curl:**
+
+```bash
+curl -X POST https://mcp-blockchain-metadata.mcp-blockchain-metadata.workers.dev/sse \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer tu_token_secreto_aqui" \
+  -d '{"jsonrpc":"2.0","method":"getProtocolTokens","params":{"protocol":"uniswap"},"id":"1"}'
+```
+
 **Obtener endpoints de mini aplicaciones DEX:**
 
 ```json
@@ -1243,7 +1061,7 @@ Authorization: Bearer tu_token_aqui
 **Ejemplo con curl:**
 
 ```bash
-curl -X POST http://localhost:3000/mcp \
+curl -X POST https://mcp-blockchain-metadata.mcp-blockchain-metadata.workers.dev/sse \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer tu_token_secreto_aqui" \
   -d '{"jsonrpc":"2.0","method":"getProtocolTokens","params":{"protocol":"uniswap"},"id":"1"}'
@@ -1274,18 +1092,14 @@ Inicializa una nueva sesión con una petición de inicialización JSON-RPC:
 }
 ```
 
-#### Errores en respuestas JSON-RPC
+Enviando esta petición al endpoint `/sse`:
 
-**Códigos de error comunes:**
-
-| Código | Descripción                | Posible solución                                   |
-| ------ | -------------------------- | -------------------------------------------------- |
-| -32700 | Error de parsing JSON      | Verifica la sintaxis del JSON enviado              |
-| -32600 | Petición JSON-RPC inválida | Verifica que la estructura cumpla con JSON-RPC 2.0 |
-| -32601 | Método no encontrado       | Verifica el nombre del método invocado             |
-| -32602 | Parámetros inválidos       | Revisa los parámetros enviados                     |
-| -32000 | Error interno del servidor | Contacta al administrador del servidor             |
-| -32001 | Error de autenticación     | Verifica el token de autenticación                 |
+```bash
+curl -X POST https://mcp-blockchain-metadata.mcp-blockchain-metadata.workers.dev/sse \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer tu_token_secreto_aqui" \
+  -d '{"jsonrpc":"2.0","method":"mcp.initialize","params":{"client":{"name":"mi-cliente","version":"1.0.0"}},"id":"init"}'
+```
 
 ## ❓ FAQ
 
@@ -1323,7 +1137,7 @@ Para añadir una nueva herramienta:
    }
    ```
 
-3. Registra la herramienta en el servidor MCP (edita `src/mcp-http.ts` y `src/mcp-stdio.ts`)
+3. Registra la herramienta en la función `setupMcpRoutes` en `src/mcp-http.ts`
 4. Añade tipos y servicios necesarios en las carpetas correspondientes
 
 ### ¿Es seguro usar este servidor en producción?

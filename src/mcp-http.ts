@@ -28,6 +28,33 @@ import { registerGetMetadataOfTemplateTool } from './tools/getMetadataOfTemplate
 import { McpToolRegistration } from './types/mcp'
 
 /**
+ * Configures MCP routes on the provided Hono app instance
+ * @param app Hono app instance to configure
+ * @returns The configured Hono app
+ */
+export function setupMcpRoutes<T extends object = {}> (app: Hono<T>) {
+  // Herramientas a registrar en el servidor MCP
+  const mcpTools: McpToolRegistration[] = [
+    registerGetMiniAppEndpointsTool,
+    registerGetProtocolTokensTool,
+    registerGetMetadataOfTemplateTool
+  ]
+
+  // Crear middleware de autenticación
+  const authMiddleware = createAuthMiddleware(ENV.AUTH_TOKEN)
+
+  // Aplicar middleware de autenticación a endpoints MCP
+  app.use('/sse', authMiddleware)
+
+  // Configurar rutas MCP
+  app.post('/sse', handlePostRequest(mcpTools))
+  app.get('/sse', handleGetRequest())
+  app.delete('/sse', handleDeleteRequest())
+
+  return app
+}
+
+/**
  * @function main
  * @description Función principal que inicializa y ejecuta el servidor MCP con transporte HTTP.
  * Configura rutas, middleware de autenticación y gestión de sesiones.
@@ -46,25 +73,10 @@ async function main () {
       auth: ENV.AUTH_TOKEN ? 'configurado' : 'no configurado'
     })
 
-    // Herramientas a registrar en el servidor MCP
-    const mcpTools: McpToolRegistration[] = [
-      registerGetMiniAppEndpointsTool,
-      registerGetProtocolTokensTool,
-      registerGetMetadataOfTemplateTool
-    ]
-
     const app = new Hono()
 
-    // Crear middleware de autenticación
-    const authMiddleware = createAuthMiddleware(ENV.AUTH_TOKEN)
-
-    // Aplicar middleware de autenticación a endpoints MCP
-    app.use('/mcp', authMiddleware)
-
     // Configurar rutas MCP
-    app.post('/mcp', handlePostRequest(mcpTools))
-    app.get('/mcp', handleGetRequest())
-    app.delete('/mcp', handleDeleteRequest())
+    setupMcpRoutes(app)
 
     // Iniciar el servidor con el adaptador de servidor node de Hono
     serve(
@@ -82,8 +94,10 @@ async function main () {
   }
 }
 
-// Iniciar la aplicación
-main().catch(error => {
-  logger.fatal('Error no manejado en la función principal', error)
-  process.exit(1)
-})
+// Solo ejecuta main cuando este archivo es el punto de entrada
+if (require.main === module) {
+  main().catch(error => {
+    logger.fatal('Error no manejado en la función principal', error)
+    process.exit(1)
+  })
+}

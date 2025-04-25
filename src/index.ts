@@ -1,9 +1,9 @@
-import { Hono } from "hono";
+import { Hono } from 'hono'
+import { setupMcpRoutes } from './mcp-http'
 
-const app = new Hono<{ Bindings: CloudflareBindings }>();
+const app = new Hono<{ Bindings: CloudflareBindings }>()
 
-app.get("/message", (c) => {
-  return c.text("Hello Hono!");
-});
+// Configurar las rutas MCP reutilizando la lógica existente
+setupMcpRoutes(app)
 
-export default app;
+export default app
