@@ -40,16 +40,22 @@ export function setupMcpRoutes<T extends object = {}> (app: Hono<T>) {
     registerGetMetadataOfTemplateTool
   ]
 
-  // Crear middleware de autenticación
-  const authMiddleware = createAuthMiddleware(ENV.AUTH_TOKEN)
+  try {
+    // Crear middleware de autenticación
+    const authMiddleware = createAuthMiddleware(ENV.AUTH_TOKEN)
 
-  // Aplicar middleware de autenticación a endpoints MCP
-  app.use('/sse', authMiddleware)
+    // Aplicar middleware de autenticación a endpoints MCP
+    app.use('/sse', authMiddleware)
 
-  // Configurar rutas MCP
-  app.post('/sse', handlePostRequest(mcpTools))
-  app.get('/sse', handleGetRequest())
-  app.delete('/sse', handleDeleteRequest())
+    // Configurar rutas MCP
+    app.post('/sse', handlePostRequest(mcpTools))
+    app.get('/sse', handleGetRequest())
+    app.delete('/sse', handleDeleteRequest())
+
+    logger.info('Rutas MCP configuradas correctamente')
+  } catch (error) {
+    logger.error('Error al configurar rutas MCP', error)
+  }
 
   return app
 }
@@ -62,8 +68,11 @@ export function setupMcpRoutes<T extends object = {}> (app: Hono<T>) {
  */
 async function main () {
   try {
-    // Validar variables de entorno requeridas
-    ENV.validateRequiredVars(['PORT', 'NODE_ENV'])
+    // Solo ejecutar esta validación en entorno Node.js
+    if (typeof process !== 'undefined' && process.env) {
+      // Validar variables de entorno requeridas
+      ENV.validateRequiredVars(['PORT', 'NODE_ENV'])
+    }
 
     // Configurar manejadores de errores globales
     setupErrorHandlers()
@@ -79,23 +88,33 @@ async function main () {
     setupMcpRoutes(app)
 
     // Iniciar el servidor con el adaptador de servidor node de Hono
-    serve(
-      {
-        fetch: app.fetch,
-        port: Number(ENV.PORT)
-      },
-      (info: { port: number }) => {
-        logger.info(`Servidor MCP ejecutándose en el puerto ${info.port}`)
-      }
-    )
+    // Solo ejecutar si estamos en un entorno Node.js
+    if (typeof process !== 'undefined' && process.env) {
+      serve(
+        {
+          fetch: app.fetch,
+          port: Number(ENV.PORT)
+        },
+        (info: { port: number }) => {
+          logger.info(`Servidor MCP ejecutándose en el puerto ${info.port}`)
+        }
+      )
+    }
   } catch (error) {
     logger.fatal('Error fatal al iniciar el servidor MCP', error)
-    process.exit(1)
+    if (typeof process !== 'undefined') {
+      process.exit(1)
+    }
   }
 }
 
-// Solo ejecuta main cuando este archivo es el punto de entrada
-if (require.main === module) {
+// Verificación compatible con ESM y entornos como Cloudflare Workers
+// Solo ejecuta main cuando este archivo es ejecutado directamente
+if (
+  typeof globalThis !== 'undefined' &&
+  globalThis.process &&
+  typeof process.argv !== 'undefined'
+) {
   main().catch(error => {
     logger.fatal('Error no manejado en la función principal', error)
     process.exit(1)
