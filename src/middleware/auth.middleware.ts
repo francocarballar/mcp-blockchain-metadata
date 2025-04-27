@@ -26,54 +26,65 @@ export const createAuthMiddleware = (authToken?: string) => {
    * @returns {Promise<Response>} Respuesta de error o continúa al siguiente middleware
    */
   return async (c: Context, next: () => Promise<void>) => {
-    // Si no hay token configurado, permitir todas las solicitudes
-    if (!authToken) {
-      logger.debug('Solicitud permitida (sin autenticación requerida)')
-      return next()
-    }
+    try {
+      // Si no hay token configurado, permitir todas las solicitudes
+      if (!authToken) {
+        logger.debug('Solicitud permitida (sin autenticación requerida)')
+        return next()
+      }
 
-    const authHeader = c.req.header('authorization')
-    const requestInfo = {
-      path: c.req.path,
-      method: c.req.method,
-      headers: Object.fromEntries(
-        Object.entries(c.req.header()).filter(
-          ([key]) => !['authorization', 'cookie'].includes(key.toLowerCase())
+      const authHeader = c.req.header('authorization')
+      const requestInfo = {
+        path: c.req.path,
+        method: c.req.method,
+        headers: Object.fromEntries(
+          Object.entries(c.req.header()).filter(
+            ([key]) => !['authorization', 'cookie'].includes(key.toLowerCase())
+          )
         )
-      )
-    }
+      }
 
-    // Verificar formato del header de autorización
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      logger.warn(
-        'Solicitud rechazada: header Authorization faltante o inválido',
-        requestInfo
-      )
+      // Verificar formato del header de autorización
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        logger.warn(
+          'Solicitud rechazada: header Authorization faltante o inválido',
+          requestInfo
+        )
+        return c.json(
+          createErrorResponse(
+            ErrorCode.UNAUTHORIZED,
+            'No autorizado: Header Authorization inválido'
+          ),
+          401
+        )
+      }
+
+      // Verificar token
+      const token = authHeader.slice(7)
+      if (token !== authToken) {
+        logger.warn('Solicitud rechazada: token inválido', requestInfo)
+        return c.json(
+          createErrorResponse(
+            ErrorCode.UNAUTHORIZED,
+            'No autorizado: Token inválido'
+          ),
+          401
+        )
+      }
+
+      // Autenticación exitosa
+      logger.debug('Solicitud autenticada correctamente', requestInfo)
+
+      await next()
+    } catch (error) {
+      logger.error('Error en el middleware de autenticación', error)
       return c.json(
         createErrorResponse(
-          ErrorCode.UNAUTHORIZED,
-          'No autorizado: Header Authorization inválido'
+          ErrorCode.INTERNAL_ERROR,
+          'Error interno en la autenticación'
         ),
-        401
+        500
       )
     }
-
-    // Verificar token
-    const token = authHeader.slice(7)
-    if (token !== authToken) {
-      logger.warn('Solicitud rechazada: token inválido', requestInfo)
-      return c.json(
-        createErrorResponse(
-          ErrorCode.UNAUTHORIZED,
-          'No autorizado: Token inválido'
-        ),
-        401
-      )
-    }
-
-    // Autenticación exitosa
-    logger.debug('Solicitud autenticada correctamente', requestInfo)
-
-    await next()
   }
 }
