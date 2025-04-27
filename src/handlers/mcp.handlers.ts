@@ -301,47 +301,31 @@ export function handleGetRequest () {
  * @returns {Function} Handler para ruta DELETE de MCP
  */
 export function handleDeleteRequest () {
-  return async (c: Context) => {
+  return (c: Context) => {
     try {
-      const sessionId = c.req.header('mcp-session-id')
-
-      if (!sessionId) {
-        logger.warn('Solicitud DELETE sin ID de sesión')
+      const streamResponse = validateSessionAndCreateResponse(c)
+      if (!streamResponse) {
+        logger.warn('Solicitud DELETE inválida, sin ID de sesión válido')
         return c.json(
           createErrorResponse(
             ErrorCode.INVALID_SESSION,
-            'ID de sesión no proporcionado'
+            'Solicitud incorrecta: No se proporcionó un ID de sesión válido'
           ),
           400
         )
       }
 
-      const transport = sessionManager.getTransport(sessionId)
-      if (!transport) {
-        logger.warn('Sesión a eliminar no encontrada', { sessionId })
-        return c.json(
-          createErrorResponse(
-            ErrorCode.INVALID_SESSION,
-            'Sesión no encontrada o ya eliminada'
-          ),
-          404
-        )
-      }
+      logger.debug('Solicitud DELETE recibida', {
+        sessionId: c.req.header('mcp-session-id')
+      })
 
-      // Notificar al cliente sobre el cierre de sesión
-      const response = validateSessionAndCreateResponse(c)
-
-      // Eliminar la sesión del gestor
-      sessionManager.removeTransport(sessionId)
-      logger.info('Sesión eliminada correctamente', { sessionId })
-
-      return response
+      return streamResponse
     } catch (error) {
       logger.error('Error en handleDeleteRequest', error)
       return c.json(
         createErrorResponse(
           ErrorCode.INTERNAL_ERROR,
-          'Error interno del servidor'
+          'Error interno del servidor al procesar DELETE'
         ),
         500
       )
