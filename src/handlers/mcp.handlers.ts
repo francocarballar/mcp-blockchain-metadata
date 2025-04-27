@@ -50,72 +50,91 @@ function createStreamResponse (
   transport: StreamableHTTPServerTransport,
   requestBody?: any
 ): Response {
-  const responseHeaders =
-    c.req.method === 'GET'
-      ? {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive'
-        }
-      : undefined
+  try {
+    const responseHeaders =
+      c.req.method === 'GET'
+        ? {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive'
+          }
+        : undefined
 
-  return new Response(
-    new ReadableStream({
-      start (controller) {
-        const customRes = new ServerResponse(
-          c.req.raw as unknown as IncomingMessage
-        )
+    return new Response(
+      new ReadableStream({
+        start (controller) {
+          // Crear una pseudo-respuesta de servidor para capturar la salida
+          const customRes = new ServerResponse(
+            c.req.raw as unknown as IncomingMessage
+          )
 
-        // Capturar los datos de respuesta
-        customRes.write = chunk => {
-          controller.enqueue(chunk)
-          return true
-        }
+          // Capturar los datos de respuesta
+          customRes.write = chunk => {
+            controller.enqueue(chunk)
+            return true
+          }
 
-        customRes.end = chunk => {
-          if (chunk) controller.enqueue(chunk)
-          controller.close()
-          return customRes
-        }
+          customRes.end = chunk => {
+            if (chunk) controller.enqueue(chunk)
+            controller.close()
+            return customRes
+          }
 
-        // Determinar qué método de transporte usar según existe el cuerpo de solicitud
-        const handleRequest = () => {
-          return requestBody
-            ? transport.handleRequest(
-                c.req.raw as unknown as IncomingMessage,
-                customRes,
-                requestBody
-              )
-            : transport.handleRequest(
-                c.req.raw as unknown as IncomingMessage,
-                customRes
-              )
-        }
+          // Determinar qué método de transporte usar según existe el cuerpo de solicitud
+          const handleRequest = () => {
+            return requestBody
+              ? transport.handleRequest(
+                  c.req.raw as unknown as IncomingMessage,
+                  customRes,
+                  requestBody
+                )
+              : transport.handleRequest(
+                  c.req.raw as unknown as IncomingMessage,
+                  customRes
+                )
+          }
 
-        // Manejar la solicitud y capturar posibles errores
-        handleRequest().catch(error => {
-          logger.error(`Error al manejar solicitud ${c.req.method}`, error)
+          // Manejar la solicitud y capturar posibles errores
+          handleRequest().catch(error => {
+            logger.error(`Error al manejar solicitud ${c.req.method}`, error)
 
-          // Crear respuesta de error según el tipo de solicitud
-          const errorResponse =
-            c.req.method === 'GET' || c.req.method === 'DELETE'
-              ? Buffer.from('Error interno del servidor')
-              : Buffer.from(
-                  JSON.stringify(
-                    createErrorResponse(
-                      ErrorCode.INTERNAL_ERROR,
-                      'Error interno del servidor'
+            // Crear respuesta de error según el tipo de solicitud
+            const errorResponse =
+              c.req.method === 'GET' || c.req.method === 'DELETE'
+                ? Buffer.from('Error interno del servidor')
+                : Buffer.from(
+                    JSON.stringify(
+                      createErrorResponse(
+                        ErrorCode.INTERNAL_ERROR,
+                        'Error interno del servidor'
+                      )
                     )
                   )
-                )
 
-          controller.enqueue(errorResponse)
-          controller.close()
-        })
+            controller.enqueue(errorResponse)
+            controller.close()
+          })
+        }
+      }),
+      { headers: responseHeaders }
+    )
+  } catch (error) {
+    logger.error('Error al crear respuesta de stream', error)
+    return new Response(
+      JSON.stringify(
+        createErrorResponse(
+          ErrorCode.INTERNAL_ERROR,
+          'Error interno del servidor al crear respuesta'
+        )
+      ),
+      {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       }
-    }),
-    { headers: responseHeaders }
-  )
+    )
+  }
 }
 
 /**
@@ -143,8 +162,19 @@ export function handlePostRequest (tools: Array<(server: McpServer) => void>) {
       // Caso 2: Nueva solicitud de inicialización
       if (!sessionId && isInitializeRequest(requestBody)) {
         logger.info('Inicializando nueva sesión MCP')
-        const transport = await initializeSession(tools)
-        return createStreamResponse(c, transport, requestBody)
+        try {
+          const transport = await initializeSession(tools)
+          return createStreamResponse(c, transport, requestBody)
+        } catch (error) {
+          logger.error('Error al inicializar sesión', error)
+          return c.json(
+            createErrorResponse(
+              ErrorCode.INTERNAL_ERROR,
+              'Error al inicializar sesión'
+            ),
+            500
+          )
+        }
       }
 
       // Caso 3: Solicitud inválida
@@ -178,26 +208,31 @@ export function handlePostRequest (tools: Array<(server: McpServer) => void>) {
 async function initializeSession (
   tools: Array<(server: McpServer) => void>
 ): Promise<StreamableHTTPServerTransport> {
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-    onsessioninitialized: sessionId => {
-      sessionManager.addTransport(sessionId, transport)
-      logger.info('Nueva sesión inicializada', { sessionId })
-    }
-  })
+  try {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: sessionId => {
+        sessionManager.addTransport(sessionId, transport)
+        logger.info('Nueva sesión inicializada', { sessionId })
+      }
+    })
 
-  // Limpiar transporte cuando se cierre
-  transport.onclose = () => {
-    if (transport.sessionId) {
-      logger.info('Sesión cerrada', { sessionId: transport.sessionId })
-      sessionManager.removeTransport(transport.sessionId)
+    // Limpiar transporte cuando se cierre
+    transport.onclose = () => {
+      if (transport.sessionId) {
+        logger.info('Sesión cerrada', { sessionId: transport.sessionId })
+        sessionManager.removeTransport(transport.sessionId)
+      }
     }
+
+    const server = createMcpServer(tools)
+    await server.connect(transport)
+
+    return transport
+  } catch (error) {
+    logger.error('Error en initializeSession', error)
+    throw error // Propagar el error para manejo adecuado
   }
-
-  const server = createMcpServer(tools)
-  await server.connect(transport)
-
-  return transport
 }
 
 /**
@@ -207,20 +242,25 @@ async function initializeSession (
  * @returns {Response|null} Respuesta o null si la sesión no es válida
  */
 function validateSessionAndCreateResponse (c: Context): Response | null {
-  const sessionId = c.req.header('mcp-session-id')
-  if (!sessionId) {
-    logger.warn('Solicitud sin ID de sesión')
+  try {
+    const sessionId = c.req.header('mcp-session-id')
+    if (!sessionId) {
+      logger.warn('Solicitud sin ID de sesión')
+      return null
+    }
+
+    const transport = sessionManager.getTransport(sessionId)
+    if (!transport) {
+      logger.warn('Sesión no encontrada', { sessionId })
+      return null
+    }
+
+    logger.debug('Sesión validada correctamente', { sessionId })
+    return createStreamResponse(c, transport)
+  } catch (error) {
+    logger.error('Error al validar sesión', error)
     return null
   }
-
-  const transport = sessionManager.getTransport(sessionId)
-  if (!transport) {
-    logger.warn('Sesión no encontrada', { sessionId })
-    return null
-  }
-
-  logger.debug('Sesión validada correctamente', { sessionId })
-  return createStreamResponse(c, transport)
 }
 
 /**
@@ -230,17 +270,28 @@ function validateSessionAndCreateResponse (c: Context): Response | null {
  */
 export function handleGetRequest () {
   return async (c: Context) => {
-    const response = validateSessionAndCreateResponse(c)
-    if (!response) {
+    try {
+      const response = validateSessionAndCreateResponse(c)
+      if (!response) {
+        return c.json(
+          createErrorResponse(
+            ErrorCode.INVALID_SESSION,
+            'ID de sesión inválido o faltante'
+          ),
+          400
+        )
+      }
+      return response
+    } catch (error) {
+      logger.error('Error en handleGetRequest', error)
       return c.json(
         createErrorResponse(
-          ErrorCode.INVALID_SESSION,
-          'ID de sesión inválido o faltante'
+          ErrorCode.INTERNAL_ERROR,
+          'Error interno del servidor'
         ),
-        400
+        500
       )
     }
-    return response
   }
 }
 
@@ -251,16 +302,49 @@ export function handleGetRequest () {
  */
 export function handleDeleteRequest () {
   return async (c: Context) => {
-    const response = validateSessionAndCreateResponse(c)
-    if (!response) {
+    try {
+      const sessionId = c.req.header('mcp-session-id')
+
+      if (!sessionId) {
+        logger.warn('Solicitud DELETE sin ID de sesión')
+        return c.json(
+          createErrorResponse(
+            ErrorCode.INVALID_SESSION,
+            'ID de sesión no proporcionado'
+          ),
+          400
+        )
+      }
+
+      const transport = sessionManager.getTransport(sessionId)
+      if (!transport) {
+        logger.warn('Sesión a eliminar no encontrada', { sessionId })
+        return c.json(
+          createErrorResponse(
+            ErrorCode.INVALID_SESSION,
+            'Sesión no encontrada o ya eliminada'
+          ),
+          404
+        )
+      }
+
+      // Notificar al cliente sobre el cierre de sesión
+      const response = validateSessionAndCreateResponse(c)
+
+      // Eliminar la sesión del gestor
+      sessionManager.removeTransport(sessionId)
+      logger.info('Sesión eliminada correctamente', { sessionId })
+
+      return response
+    } catch (error) {
+      logger.error('Error en handleDeleteRequest', error)
       return c.json(
         createErrorResponse(
-          ErrorCode.INVALID_SESSION,
-          'ID de sesión inválido o faltante'
+          ErrorCode.INTERNAL_ERROR,
+          'Error interno del servidor'
         ),
-        400
+        500
       )
     }
-    return response
   }
 }
