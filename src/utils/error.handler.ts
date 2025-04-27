@@ -5,17 +5,25 @@ import { logger } from './logger'
  * @description Configura manejadores globales para errores no capturados y promesas rechazadas
  */
 export function setupErrorHandlers (): void {
-  // Manejar excepciones no capturadas
-  process.on('uncaughtException', error => {
-    logger.error('Excepción no capturada', error)
-    // Aquí se podría agregar lógica para enviar a un servicio de monitoreo
-  })
+  // Verificar si estamos en entorno Node.js
+  if (typeof process !== 'undefined' && process?.on) {
+    // Manejar excepciones no capturadas
+    process.on('uncaughtException', error => {
+      logger.error('Excepción no capturada', error)
+      // Aquí se podría agregar lógica para enviar a un servicio de monitoreo
+    })
 
-  // Manejar rechazos de promesas no manejados
-  process.on('unhandledRejection', (reason, promise) => {
-    logger.error('Rechazo no manejado', reason, { promise })
-    // Aquí se podría agregar lógica para enviar a un servicio de monitoreo
-  })
+    // Manejar rechazos de promesas no manejados
+    process.on('unhandledRejection', (reason, promise) => {
+      logger.error('Rechazo no manejado', reason, { promise })
+      // Aquí se podría agregar lógica para enviar a un servicio de monitoreo
+    })
+  } else {
+    // En Cloudflare Workers, no podemos registrar los manejadores de la misma manera
+    logger.info(
+      'Configurando manejadores de errores en entorno sin process.on (Cloudflare Workers)'
+    )
+  }
 }
 
 /**
