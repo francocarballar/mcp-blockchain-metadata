@@ -2,6 +2,9 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { logger } from './logger'
 import { SessionStore } from '../types/mcp'
 
+// Tipo compatible para timeouts en diferentes entornos
+type TimeoutId = ReturnType<typeof setTimeout>
+
 /**
  * @class SessionManager
  * @description Gestor centralizado de sesiones MCP
@@ -10,7 +13,7 @@ import { SessionStore } from '../types/mcp'
 export class SessionManager {
   private static instance: SessionManager
   private sessions: SessionStore = {}
-  private sessionTimeouts: Record<string, NodeJS.Timeout> = {}
+  private sessionTimeouts: Record<string, TimeoutId> = {}
   private readonly DEFAULT_SESSION_TIMEOUT = 30 * 60 * 1000 // 30 minutos por defecto
 
   /**
